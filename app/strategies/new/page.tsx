@@ -585,7 +585,7 @@ export default function NewStrategyPage() {
           </CardContent>
           <CardFooter className="flex justify-between">
             <Button variant="outline" type="button" onClick={() => router.push("/strategies")}>
-              取消
+              取消 
             </Button>
             <Button type="submit">创建策略</Button>
           </CardFooter>

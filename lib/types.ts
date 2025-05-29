@@ -34,10 +34,8 @@ export interface Strategy {
   name: string;
   sourceChain: string;
   sourceToken: string;
-  sourceTargetToken: string; // 添加源链目标代币
   targetChain: string;
   targetToken: string;
-  targetSourceToken: string; // 添加目标链源代币
   initialAmount: string;
   gasFee: string;
   networkFee: string;

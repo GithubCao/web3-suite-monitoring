@@ -1,9 +1,9 @@
-# crypto-arbitrage
+# Web3 Suite Monitoring
 
 *Automatically synced with your [v0.dev](https://v0.dev) deployments*
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/2273766442-qqcoms-projects/v0-crypto-arbitrage)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.dev-black?style=for-the-badge)](https://v0.dev/chat/projects/qX1dLRHZSZT)
+[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/2273766442-qqcoms-projects/v0-web3-suite-monitoring)
+[![Built with v0](https://img.shields.io/badge/Built%20with-v0.dev-black?style=for-the-badge)](https://v0.dev/chat/projects/AnYz7NY7a6y)
 
 ## Overview
 
@@ -14,13 +14,13 @@ Any changes you make to your deployed app will be automatically pushed to this r
 
 Your project is live at:
 
-**[https://vercel.com/2273766442-qqcoms-projects/v0-crypto-arbitrage](https://vercel.com/2273766442-qqcoms-projects/v0-crypto-arbitrage)**
+**[https://vercel.com/2273766442-qqcoms-projects/v0-web3-suite-monitoring](https://vercel.com/2273766442-qqcoms-projects/v0-web3-suite-monitoring)**
 
 ## Build your app
 
 Continue building your app on:
 
-**[https://v0.dev/chat/projects/qX1dLRHZSZT](https://v0.dev/chat/projects/qX1dLRHZSZT)**
+**[https://v0.dev/chat/projects/AnYz7NY7a6y](https://v0.dev/chat/projects/AnYz7NY7a6y)**
 
 ## How It Works
 
