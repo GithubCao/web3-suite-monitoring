@@ -207,6 +207,10 @@ export default function ConfigureStrategyPage() {
         formData.slippage,
         formData.preferredApiProvider || undefined,
         formData.fallbackApiProviders.length > 0 ? formData.fallbackApiProviders : undefined,
+        formData.gasFee,
+        formData.networkFee,
+        formData.bridgeFee,
+        formData.dexFee
       )
 
       setCalculationResult({
@@ -329,7 +333,6 @@ export default function ConfigureStrategyPage() {
     return <Globe className="h-4 w-4" />
   }
 
-  // 早期返回检查
   if (!isInitialized) {
     return <div className="flex items-center justify-center h-full">加载中...</div>
   }
@@ -629,7 +632,7 @@ export default function ConfigureStrategyPage() {
               <CardFooter className="flex justify-end">
                 <Button
                   onClick={saveStrategy}
-                  disabled={calculationResult.profitPercentage <= 0}
+             
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   <Save className="mr-2 h-4 w-4" />

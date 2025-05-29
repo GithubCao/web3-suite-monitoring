@@ -60,6 +60,12 @@ export function TradeExecutionDialog({
         strategy.targetToken,
         strategy.initialAmount,
         strategy.slippage,
+        strategy.preferredApiProvider,
+        strategy.fallbackApiProviders,
+        strategy.gasFee,
+        strategy.networkFee,
+        strategy.bridgeFee,
+        strategy.dexFee
       )
         .then((result) => {
           setArbitrageDetails({
@@ -94,6 +100,12 @@ export function TradeExecutionDialog({
         strategy.targetToken,
         amount,
         strategy.slippage,
+        strategy.preferredApiProvider,
+        strategy.fallbackApiProviders,
+        strategy.gasFee,
+        strategy.networkFee,
+        strategy.bridgeFee,
+        strategy.dexFee
       )
         .then((result) => {
           setArbitrageDetails({

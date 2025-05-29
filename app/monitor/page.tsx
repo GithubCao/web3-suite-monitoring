@@ -154,16 +154,17 @@ export default function MonitorPage() {
             strategy.targetToken,
             strategy.initialAmount,
             strategy.slippage,
-          )
-
-          // 计算考虑费用后的实际利润
-          const netProfitPercentage = calculateProfitPercentage(
-            strategy.initialAmount,
-            result.finalOutputAmount,
+            strategy.preferredApiProvider,
+            strategy.fallbackApiProviders,
             strategy.gasFee,
             strategy.networkFee,
+            strategy.bridgeFee,
+            strategy.dexFee
           )
 
+          // 使用API返回的净利润百分比，不再需要单独计算
+          const netProfitPercentage = result.netProfitPercentage
+          console.log(`result : ${JSON.stringify(result)} `);
           // 添加到机会列表
           const opportunity: ArbitrageOpportunity = {
             strategyId: strategy.id,
@@ -172,6 +173,8 @@ export default function MonitorPage() {
             targetChain: strategy.targetChain,
             sourcePrice: result.sourcePrice,
             targetPrice: result.targetPrice,
+            sourceOutputAmount: result.sourceOutputAmount,
+            finalOutputAmount: result.finalOutputAmount,
             profitPercentage: netProfitPercentage,
             timestamp: Date.now(),
             sourceRoute: result.sourceRoute,
@@ -186,6 +189,8 @@ export default function MonitorPage() {
             strategyId: strategy.id,
             sourcePrice: result.sourcePrice,
             targetPrice: result.targetPrice,
+            sourceOutputAmount: result.sourceOutputAmount,
+            finalOutputAmount: result.finalOutputAmount,
             profitPercentage: netProfitPercentage,
             timestamp: Date.now(),
           }
@@ -367,11 +372,11 @@ export default function MonitorPage() {
     if (profit < 0) return "text-red-500"
     return ""
   }
-
+ 
   // 过滤机会
   const filteredOpportunities =
     selectedStrategy === "all" ? opportunities : opportunities.filter((o) => o.strategyId === selectedStrategy)
-
+ 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -488,8 +493,9 @@ export default function MonitorPage() {
                             <TableCell>
                               {opportunity.sourceChain} → {opportunity.targetChain}
                             </TableCell>
-                            <TableCell>{opportunity.sourcePrice.toFixed(8)}</TableCell>
-                            <TableCell>{opportunity.targetPrice.toFixed(8)}</TableCell>
+                            
+                            <TableCell>{opportunity.sourceOutputAmount}</TableCell>
+                            <TableCell>{opportunity.finalOutputAmount}</TableCell>
                             <TableCell className={getProfitColor(opportunity.profitPercentage)}>
                               {opportunity.profitPercentage.toFixed(2)}%
                               {opportunity.profitPercentage > 1.0 && (

@@ -82,8 +82,8 @@ export function PriceHistoryDialog({ open, onOpenChange, strategyId, strategyNam
               {priceHistory.map((record) => (
                 <TableRow key={record.id}>
                   <TableCell>{formatTime(record.timestamp)}</TableCell>
-                  <TableCell>{record.sourcePrice.toFixed(8)}</TableCell>
-                  <TableCell>{record.targetPrice.toFixed(8)}</TableCell>
+                  <TableCell>{record.sourceOutputAmount}</TableCell>
+                  <TableCell>{record.finalOutputAmount}</TableCell>
                   <TableCell className={getProfitColor(record.profitPercentage)}>
                     {record.profitPercentage.toFixed(2)}%
                     {record.profitPercentage > 1.0 && (

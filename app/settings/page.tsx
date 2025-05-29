@@ -13,7 +13,7 @@ import type { ChainConfig, TokenConfig, ApiConfig } from "@/lib/types"
 import { ChainIdMap, tokensByChain, resetConfigCache } from "@/lib/config"
 import { useToast } from "@/components/ui/use-toast"
 import { Separator } from "@/components/ui/separator"
-import { Search, Plus, Trash2, Settings2, Key, Globe, Zap, TestTube, BarChart3 } from "lucide-react"
+import { Search, Plus, Trash2, Settings2, Key, Globe, Zap } from "lucide-react"
 import { getConfig, resetConfig, saveConfig as saveConfigToStorage } from "@/lib/storage"
 import {
   getApiConfigs,
@@ -25,9 +25,6 @@ import {
   validateApiConfig,
   defaultApiConfigs,
 } from "@/lib/api-config"
-import { getApiHealthStatus } from "@/lib/api-monitor"
-import { ApiTestDialog } from "@/components/api-test-dialog"
-import { ApiMonitorDialog } from "@/components/api-monitor-dialog"
 
 export default function SettingsPage() {
   const [chains, setChains] = useState<ChainConfig>({ ...ChainIdMap })
@@ -36,17 +33,6 @@ export default function SettingsPage() {
   const [selectedChain, setSelectedChain] = useState<string>("")
   const [searchQuery, setSearchQuery] = useState("")
   const [isLoaded, setIsLoaded] = useState(false)
-
-  // 对话框状态
-  const [apiTestDialog, setApiTestDialog] = useState<{ open: boolean; config: ApiConfig | null }>({
-    open: false,
-    config: null,
-  })
-  const [apiMonitorDialog, setApiMonitorDialog] = useState<{ open: boolean; config: ApiConfig | null }>({
-    open: false,
-    config: null,
-  })
-
   const { toast } = useToast()
 
   // 获取链名称列表（使用本地状态避免循环依赖）
@@ -182,9 +168,6 @@ export default function SettingsPage() {
       },
       supportedChains: [1],
       description: "自定义API配置",
-      endpoints: {
-        quote: "/quote",
-      },
     }
 
     addApiConfig(newConfig)
@@ -209,16 +192,6 @@ export default function SettingsPage() {
       title: "API配置已重置",
       description: "已恢复为默认API配置",
     })
-  }
-
-  // 打开API测试对话框
-  const openApiTestDialog = (config: ApiConfig) => {
-    setApiTestDialog({ open: true, config })
-  }
-
-  // 打开API监控对话框
-  const openApiMonitorDialog = (config: ApiConfig) => {
-    setApiMonitorDialog({ open: true, config })
   }
 
   // 保存配置
@@ -273,7 +246,6 @@ export default function SettingsPage() {
       config.provider.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
-  // 早期返回检查
   if (!isLoaded) {
     return <div className="flex items-center justify-center h-full">加载中...</div>
   }
@@ -439,8 +411,6 @@ export default function SettingsPage() {
                   config={config}
                   onUpdate={handleApiConfigUpdate}
                   onDelete={handleDeleteApiConfig}
-                  onTest={() => openApiTestDialog(config)}
-                  onMonitor={() => openApiMonitorDialog(config)}
                 />
               ))}
 
@@ -453,24 +423,6 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
-
-      {/* API测试对话框 */}
-      {apiTestDialog.config && (
-        <ApiTestDialog
-          open={apiTestDialog.open}
-          onOpenChange={(open) => setApiTestDialog({ ...apiTestDialog, open })}
-          apiConfig={apiTestDialog.config}
-        />
-      )}
-
-      {/* API监控对话框 */}
-      {apiMonitorDialog.config && (
-        <ApiMonitorDialog
-          open={apiMonitorDialog.open}
-          onOpenChange={(open) => setApiMonitorDialog({ ...apiMonitorDialog, open })}
-          apiConfig={apiMonitorDialog.config}
-        />
-      )}
     </div>
   )
 }
@@ -480,14 +432,10 @@ function ApiConfigCard({
   config,
   onUpdate,
   onDelete,
-  onTest,
-  onMonitor,
 }: {
   config: ApiConfig
   onUpdate: (config: ApiConfig) => void
   onDelete: (id: string) => void
-  onTest: () => void
-  onMonitor: () => void
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [editedConfig, setEditedConfig] = useState<ApiConfig>({ ...config })
@@ -504,15 +452,6 @@ function ApiConfigCard({
         config: {
           ...editedConfig.config,
           [configField]: value,
-        },
-      })
-    } else if (field.startsWith("endpoints.")) {
-      const endpointField = field.replace("endpoints.", "")
-      setEditedConfig({
-        ...editedConfig,
-        endpoints: {
-          ...editedConfig.endpoints,
-          [endpointField]: value,
         },
       })
     } else {
@@ -540,19 +479,6 @@ function ApiConfigCard({
     }
   }
 
-  // 获取API健康状态
-  const healthStatus = getApiHealthStatus(config.id)
-  const getHealthBadge = () => {
-    switch (healthStatus) {
-      case "healthy":
-        return <Badge className="bg-green-100 text-green-800">健康</Badge>
-      case "warning":
-        return <Badge className="bg-yellow-100 text-yellow-800">警告</Badge>
-      case "error":
-        return <Badge className="bg-red-100 text-red-800">错误</Badge>
-    }
-  }
-
   return (
     <Card className={`transition-all ${config.enabled ? "border-green-200 bg-green-50/50" : "border-gray-200"}`}>
       <CardHeader className="pb-3">
@@ -565,17 +491,10 @@ function ApiConfigCard({
                 <span>{config.description}</span>
                 <Badge variant={config.enabled ? "default" : "secondary"}>{config.enabled ? "启用" : "禁用"}</Badge>
                 <Badge variant="outline">优先级 {config.priority}</Badge>
-                {getHealthBadge()}
               </CardDescription>
             </div>
           </div>
           <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={onTest}>
-              <TestTube className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={onMonitor}>
-              <BarChart3 className="h-4 w-4" />
-            </Button>
             <Switch
               checked={editedConfig.enabled}
               onCheckedChange={(checked) => handleInputChange("enabled", checked)}
@@ -634,15 +553,6 @@ function ApiConfigCard({
             </div>
 
             <div className="space-y-2">
-              <Label>报价端点</Label>
-              <Input
-                value={editedConfig.endpoints?.quote || ""}
-                onChange={(e) => handleInputChange("endpoints.quote", e.target.value)}
-                placeholder="/quote/v1/{chainId}"
-              />
-            </div>
-
-            <div className="space-y-2">
               <Label>API密钥 (可选)</Label>
               <Input
                 type="password"
@@ -671,15 +581,6 @@ function ApiConfigCard({
                 value={editedConfig.config.rateLimit || 100}
                 onChange={(e) => handleInputChange("config.rateLimit", Number.parseInt(e.target.value))}
                 placeholder="100"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>默认费用 (可选)</Label>
-              <Input
-                value={editedConfig.config.fee || ""}
-                onChange={(e) => handleInputChange("config.fee", e.target.value)}
-                placeholder="0.003"
               />
             </div>
           </div>

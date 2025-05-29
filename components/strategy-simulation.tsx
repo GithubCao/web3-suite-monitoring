@@ -43,6 +43,12 @@ export function StrategySimulation({
         targetToken,
         amount,
         "0.005",
+        undefined,      // 无首选API提供商
+        undefined,      // 无备用API提供商
+        "0.01",         // 默认Gas费用
+        "0.005",        // 默认网络费用
+        "0.003",        // 默认桥费用
+        "0.003"         // 默认DEX费用
       )
 
       setResult({
