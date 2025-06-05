@@ -110,7 +110,7 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
             variant: "default",
           })
         } else {
-          // 使用缓存的代币详情构建代币列表
+          // 使用缓存的代���详情构建代币列表
           const tokenSymbols = tokenDetails.map((token) => token.symbol)
           if (isSourceChain) {
             setSourceTokens(tokenSymbols)

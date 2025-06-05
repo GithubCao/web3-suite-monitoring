@@ -1090,27 +1090,15 @@ export const executeArbitrageQuery = async (
     const finalOutputAmount = targetQuote.assumedAmountOut
     console.log(`目标链输出金额: ${finalOutputAmount} ${sourceToken}`)
 
-    // 获取链ID和代币地址
-    const sourceChainId = getChainId(sourceChain)
-    const targetChainId = getChainId(targetChain)
-    const sourceTokenAddress = getTokenAddress(sourceChain, sourceToken)
-    const targetTokenAddress = getTokenAddress(targetChain, targetToken)
-
-    if (!sourceChainId || !targetChainId || !sourceTokenAddress || !targetTokenAddress) {
-      throw new Error("无效的链或代币配置")
-    }
-
-    // 将wei格式的金额转换回小数格式
-    const decimalSourceOutputAmount = await convertWeiToDecimalWithDecimals(
+    // 使用返回的代币信息中的 decimals 字段来转换金额
+    const decimalSourceOutputAmount = convertWeiToDecimal(
       sourceOutputAmount,
-      targetChainId,
-      targetTokenAddress,
+      sourceQuote.tokens[1].decimals, // 使用输出代币的 decimals
     )
 
-    const decimalFinalOutputAmount = await convertWeiToDecimalWithDecimals(
+    const decimalFinalOutputAmount = convertWeiToDecimal(
       finalOutputAmount,
-      sourceChainId,
-      sourceTokenAddress,
+      targetQuote.tokens[1].decimals, // 使用输出代币的 decimals
     )
 
     console.log(`转换后的源链输出金额: ${decimalSourceOutputAmount} ${targetToken}`)

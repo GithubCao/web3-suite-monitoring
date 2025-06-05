@@ -10,6 +10,7 @@ import {
   updateTokensForChain,
   getCachedTokensForChain,
   type KyberSwapChain,
+  forceRefreshConfig,
 } from "@/lib/config"
 import type { TokenDetail } from "@/lib/types"
 import {
@@ -24,6 +25,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PlusCircle } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 export default function TokensPage() {
   const [chains, setChains] = useState<KyberSwapChain[]>([])
@@ -162,9 +164,7 @@ export default function TokensPage() {
       updateTokensForChain(chainId, tokens)
 
       // 强制刷新全局配置缓存
-      import("@/lib/config").then(({ forceRefreshConfig }) => {
-        forceRefreshConfig()
-      })
+      forceRefreshConfig()
 
       setMessage("代币配置已成功更新并同步到策略配置")
       setMessageType("success")
@@ -178,8 +178,8 @@ export default function TokensPage() {
   // 处理新增代币
   const handleAddToken = () => {
     // 验证必填字段
-    if (!newToken.symbol || !newToken.address || !newToken.name) {
-      setMessage("请填写代币的符号、名称和地址")
+    if (!newToken.symbol || !newToken.address || !newToken.name || !newToken.chainId) {
+      setMessage("请填写代币的符号、名称、地址和选择网络")
       setMessageType("error")
       return
     }
@@ -200,7 +200,7 @@ export default function TokensPage() {
 
       // 创建新代币对象
       const tokenToAdd: TokenDetail = {
-        chainId: Number(selectedChain),
+        chainId: newToken.chainId || Number(selectedChain),
         symbol: newToken.symbol || "",
         name: newToken.name || "",
         address: newToken.address || "",
@@ -213,12 +213,10 @@ export default function TokensPage() {
       setTokens(updatedTokens)
 
       // 更新配置
-      updateTokensForChain(Number(selectedChain), updatedTokens)
+      updateTokensForChain(tokenToAdd.chainId, updatedTokens)
 
       // 强制刷新全局配置缓存
-      import("@/lib/config").then(({ forceRefreshConfig }) => {
-        forceRefreshConfig()
-      })
+      forceRefreshConfig()
 
       // 重置表单并关闭对话框
       setNewToken({
@@ -234,6 +232,12 @@ export default function TokensPage() {
       // 显示成功消息
       setMessage(`成功添加代币: ${tokenToAdd.symbol}，配置已同步更新`)
       setMessageType("success")
+
+      // 如果添加的代币不是当前选择的链，切换到对应链
+      if (tokenToAdd.chainId !== Number(selectedChain)) {
+        setSelectedChain(tokenToAdd.chainId.toString())
+        loadCachedTokens(tokenToAdd.chainId.toString())
+      }
     } catch (error) {
       console.error("添加代币失败:", error)
       setMessage(`添加代币失败: ${error instanceof Error ? error.message : "未知错误"}`)
@@ -332,9 +336,7 @@ export default function TokensPage() {
       updateTokensForChain(Number(selectedChain), updatedTokens)
 
       // 强制刷新全局配置缓存
-      import("@/lib/config").then(({ forceRefreshConfig }) => {
-        forceRefreshConfig()
-      })
+      forceRefreshConfig()
 
       // 关闭对话框
       setDeleteTokenDialogOpen(false)
@@ -452,9 +454,38 @@ export default function TokensPage() {
                   <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
                       <DialogTitle>新增代币</DialogTitle>
-                      <DialogDescription>为当前选择的网络 ({getSelectedChainName()}) 添加新代币</DialogDescription>
+                      <DialogDescription>添加新的代币到指定网络</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="tokenChain" className="text-right">
+                          选择网络*
+                        </Label>
+                        <Select
+                          value={newToken.chainId?.toString() || selectedChain}
+                          onValueChange={(value) => setNewToken({ ...newToken, chainId: Number(value) })}
+                        >
+                          <SelectTrigger className="col-span-3">
+                            <SelectValue placeholder="选择网络" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {chains.map((chain) => (
+                              <SelectItem key={chain.chainId} value={chain.chainId}>
+                                <div className="flex items-center gap-2">
+                                  {chain.logoUrl && (
+                                    <img
+                                      src={chain.logoUrl || "/placeholder.svg"}
+                                      alt={chain.displayName}
+                                      className="w-4 h-4 rounded-full"
+                                    />
+                                  )}
+                                  {chain.displayName}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="symbol" className="text-right">
                           代币符号*

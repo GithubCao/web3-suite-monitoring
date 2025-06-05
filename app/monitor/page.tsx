@@ -7,7 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import type { Strategy, ArbitrageOpportunity, PriceHistoryRecord } from "@/lib/types"
 import { getStrategies, updateStrategyStatus, addPriceHistoryRecord } from "@/lib/storage"
-import { executeArbitrageQuery, executeArbitrageTrade } from "@/lib/api"
+import { executeArbitrageQuery } from "@/lib/api"
+import { executeWalletTransaction, getWallets, type WalletInfo } from "@/lib/wallet-manager"
 import { useToast } from "@/components/ui/use-toast"
 import { AlertCircle, Play, Square, RefreshCw, History, Route, Zap, Settings, FileText, Bell } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -20,6 +21,7 @@ import { TradeExecutionDialog } from "@/components/trade-execution-dialog"
 import { AutoTradeDialog } from "@/components/auto-trade-dialog"
 import { TradeExecutionsDialog } from "@/components/trade-executions-dialog"
 import { DashboardStats } from "@/components/dashboard-stats"
+import { WalletTransactionHistory } from "@/components/wallet-transaction-history"
 import { notificationManager } from "@/lib/notification"
 import { NotificationSettingsDialog } from "@/components/notification-settings-dialog"
 
@@ -32,6 +34,7 @@ export default function MonitorPage() {
   const [loading, setLoading] = useState(false)
   const [selectedStrategy, setSelectedStrategy] = useState<string>("all")
   const [updateInterval, setUpdateInterval] = useState(3)
+  const [wallets, setWallets] = useState<WalletInfo[]>([])
   const { toast } = useToast()
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -63,14 +66,18 @@ export default function MonitorPage() {
 
   const [notificationSettingsDialog, setNotificationSettingsDialog] = useState(false)
 
-  // 加载策略
+  // 加载策略和钱包
   useEffect(() => {
-    const loadStrategies = () => {
+    const loadData = () => {
       const allStrategies = getStrategies()
       setStrategies(allStrategies)
 
       const active = allStrategies.filter((s) => s.enabled)
       setActiveStrategies(active)
+
+      // 加载钱包信息
+      const walletList = getWallets()
+      setWallets(walletList)
 
       if (active.length > 0 && !isMonitoring) {
         setIsMonitoring(true)
@@ -83,10 +90,10 @@ export default function MonitorPage() {
       }
     }
 
-    loadStrategies()
+    loadData()
 
     // 设置定时刷新
-    const refreshInterval = setInterval(loadStrategies, 5000)
+    const refreshInterval = setInterval(loadData, 5000)
 
     return () => {
       clearInterval(refreshInterval)
@@ -166,9 +173,10 @@ export default function MonitorPage() {
             strategy.dexFee,
           )
 
-          // 使用API返回的净利润百分比，不再需要单独计算
+          // 使用API返回的净利润百分比
           const netProfitPercentage = result.netProfitPercentage
           console.log(`result : ${JSON.stringify(result)} `)
+
           // 添加到机会列表
           const opportunity: ArbitrageOpportunity = {
             strategyId: strategy.id,
@@ -215,30 +223,48 @@ export default function MonitorPage() {
               variant: "default",
             })
 
-            // 如果启用了自动交易且利润超过设定阈值，执行交易
+            // 如果启用了自动交易且利润超过设定阈值，执行钱包交易
             if (
               strategy.autoTrade &&
               strategy.minProfitPercentage &&
-              netProfitPercentage >= strategy.minProfitPercentage
+              netProfitPercentage >= strategy.minProfitPercentage &&
+              strategy.walletAddress
             ) {
               try {
-                await executeArbitrageTrade(
-                  strategy.id,
-                  strategy.name,
-                  strategy.sourceChain,
-                  strategy.targetChain,
-                  strategy.sourceToken,
-                  strategy.targetToken,
-                  strategy.amount,
-                  result.sourcePrice,
-                  result.targetPrice,
-                  netProfitPercentage,
-                )
+                // 查找对应的钱包
+                const wallet = wallets.find((w) => w.address === strategy.walletAddress && w.connected)
 
-                toast({
-                  title: "自动交易执行",
-                  description: `策略 ${strategy.name} 已自动执行套利交易`,
-                })
+                if (wallet) {
+                  // 执行钱包交易
+                  const walletTransaction = await executeWalletTransaction(
+                    wallet,
+                    strategy.id,
+                    strategy.sourceChain,
+                    strategy.targetChain,
+                    strategy.sourceToken,
+                    strategy.targetToken,
+                    strategy.amount,
+                  )
+
+                  if (walletTransaction.status === "completed") {
+                    toast({
+                      title: "自动交易执行成功",
+                      description: `策略 ${strategy.name} 已自动执行套利交易`,
+                    })
+                  } else {
+                    toast({
+                      title: "自动交易执行失败",
+                      description: `策略 ${strategy.name} 的自动交易执行失败: ${walletTransaction.error}`,
+                      variant: "destructive",
+                    })
+                  }
+                } else {
+                  toast({
+                    title: "钱包未连接",
+                    description: `策略 ${strategy.name} 的关联钱包未连接，无法执行自动交易`,
+                    variant: "destructive",
+                  })
+                }
               } catch (error) {
                 console.error("自动交易执行失败:", error)
                 toast({
@@ -425,6 +451,16 @@ export default function MonitorPage() {
     return ""
   }
 
+  // 获取钱包状态
+  const getWalletStatus = (walletAddress?: string) => {
+    if (!walletAddress) return null
+
+    const wallet = wallets.find((w) => w.address === walletAddress)
+    if (!wallet) return <Badge variant="outline">钱包未找到</Badge>
+
+    return <Badge variant={wallet.connected ? "default" : "secondary"}>{wallet.connected ? "已连接" : "未连接"}</Badge>
+  }
+
   // 过滤机会
   const filteredOpportunities =
     selectedStrategy === "all" ? opportunities : opportunities.filter((o) => o.strategyId === selectedStrategy)
@@ -500,9 +536,10 @@ export default function MonitorPage() {
           </Card>
 
           <Tabs defaultValue="opportunities">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="opportunities">套利机会</TabsTrigger>
               <TabsTrigger value="strategies">策略管理</TabsTrigger>
+              <TabsTrigger value="wallet-history">钱包交易</TabsTrigger>
             </TabsList>
 
             <TabsContent value="opportunities">
@@ -635,11 +672,12 @@ export default function MonitorPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>策略名称</TableHead>
-                        <TableHead>源链/代币</TableHead>
-                        <TableHead>目标链/代币</TableHead>
-                        <TableHead>初始金额</TableHead>
-                        <TableHead>状态</TableHead>
+                        <TableHead>交易对</TableHead>
+                        <TableHead>金额</TableHead>
+                        <TableHead>最小利润</TableHead>
                         <TableHead>自动交易</TableHead>
+                        <TableHead>钱包状态</TableHead>
+                        <TableHead>状态</TableHead>
                         <TableHead className="text-right">操作</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -648,47 +686,31 @@ export default function MonitorPage() {
                         <TableRow key={strategy.id}>
                           <TableCell className="font-medium">{strategy.name}</TableCell>
                           <TableCell>
-                            {strategy.sourceChain}/{strategy.sourceToken}
-                          </TableCell>
-                          <TableCell>
-                            {strategy.targetChain}/{strategy.targetToken}
+                            {strategy.sourceChain} {strategy.sourceToken} → {strategy.targetChain}{" "}
+                            {strategy.targetToken}
                           </TableCell>
                           <TableCell>{strategy.amount}</TableCell>
+                          <TableCell>{strategy.minProfitPercentage}%</TableCell>
                           <TableCell>
-                            <Badge
-                              variant={strategy.enabled ? "default" : "outline"}
-                              className={strategy.enabled ? "bg-green-100 text-green-800" : ""}
-                            >
-                              {strategy.enabled ? "启用" : "禁用"}
+                            <Badge variant={strategy.autoTrade ? "default" : "outline"}>
+                              {strategy.autoTrade ? "已启用" : "已禁用"}
                             </Badge>
                           </TableCell>
+                          <TableCell>{getWalletStatus(strategy.walletAddress)}</TableCell>
                           <TableCell>
-                            <Badge
-                              variant={strategy.autoTrade ? "secondary" : "outline"}
-                              className={strategy.autoTrade ? "bg-blue-100 text-blue-800 hover:bg-blue-200" : ""}
-                            >
-                              {strategy.autoTrade ? `自动 (${strategy.minProfitPercentage}%)` : "手动"}
+                            <Badge variant={strategy.enabled ? "default" : "outline"}>
+                              {strategy.enabled ? "运行中" : "已停止"}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
                               <Button
-                                variant={strategy.enabled ? "destructive" : "default"}
-                                className={!strategy.enabled ? "bg-blue-600 hover:bg-blue-700" : ""}
-                                size="sm"
-                                onClick={() => toggleStrategy(strategy.id, strategy.enabled)}
+                                variant="outline"
+                                size="icon"
+                                onClick={() => openTradeExecutions(strategy.id, strategy.name)}
+                                title="查看交易记录"
                               >
-                                {strategy.enabled ? (
-                                  <>
-                                    <Square className="mr-2 h-4 w-4" />
-                                    停止
-                                  </>
-                                ) : (
-                                  <>
-                                    <Play className="mr-2 h-4 w-4" />
-                                    启动
-                                  </>
-                                )}
+                                <FileText className="h-4 w-4" />
                               </Button>
                               <Button
                                 variant="outline"
@@ -699,12 +721,12 @@ export default function MonitorPage() {
                                 <Settings className="h-4 w-4" />
                               </Button>
                               <Button
-                                variant="outline"
+                                variant={strategy.enabled ? "destructive" : "default"}
                                 size="icon"
-                                onClick={() => openTradeExecutions(strategy.id, strategy.name)}
-                                title="交易记录"
+                                onClick={() => toggleStrategy(strategy.id, strategy.enabled)}
+                                title={strategy.enabled ? "停止策略" : "启动策略"}
                               >
-                                <FileText className="h-4 w-4" />
+                                {strategy.enabled ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                               </Button>
                             </div>
                           </TableCell>
@@ -715,55 +737,49 @@ export default function MonitorPage() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            <TabsContent value="wallet-history">
+              <WalletTransactionHistory />
+            </TabsContent>
           </Tabs>
         </>
       )}
 
-      {/* 对话框组件 */}
+      {/* 对话框 */}
       <PriceHistoryDialog
         open={priceHistoryDialog.open}
-        onOpenChange={(open) => setPriceHistoryDialog({ ...priceHistoryDialog, open })}
+        onOpenChange={(open) => setPriceHistoryDialog((prev) => ({ ...prev, open }))}
         strategyId={priceHistoryDialog.strategyId}
         strategyName={priceHistoryDialog.strategyName}
       />
 
       <RouteDetailsDialog
         open={routeDetailsDialog.open}
-        onOpenChange={(open) => setRouteDetailsDialog({ ...routeDetailsDialog, open })}
+        onOpenChange={(open) => setRouteDetailsDialog((prev) => ({ ...prev, open }))}
         sourceChain={routeDetailsDialog.sourceChain}
         targetChain={routeDetailsDialog.targetChain}
         sourceRoute={routeDetailsDialog.sourceRoute}
         targetRoute={routeDetailsDialog.targetRoute}
       />
 
-      {tradeExecutionDialog.strategy && (
-        <TradeExecutionDialog
-          open={tradeExecutionDialog.open}
-          onOpenChange={(open) => setTradeExecutionDialog({ ...tradeExecutionDialog, open })}
-          strategy={tradeExecutionDialog.strategy}
-          sourcePrice={tradeExecutionDialog.sourcePrice}
-          targetPrice={tradeExecutionDialog.targetPrice}
-          profitPercentage={tradeExecutionDialog.profitPercentage}
-        />
-      )}
+      <TradeExecutionDialog
+        open={tradeExecutionDialog.open}
+        onOpenChange={(open) => setTradeExecutionDialog((prev) => ({ ...prev, open }))}
+        strategy={tradeExecutionDialog.strategy}
+        sourcePrice={tradeExecutionDialog.sourcePrice}
+        targetPrice={tradeExecutionDialog.targetPrice}
+        profitPercentage={tradeExecutionDialog.profitPercentage}
+      />
 
-      {autoTradeDialog.strategy && (
-        <AutoTradeDialog
-          open={autoTradeDialog.open}
-          onOpenChange={(open) => setAutoTradeDialog({ ...autoTradeDialog, open })}
-          strategy={autoTradeDialog.strategy}
-          onUpdate={() => {
-            // 重新加载策略
-            const allStrategies = getStrategies()
-            setStrategies(allStrategies)
-            setActiveStrategies(allStrategies.filter((s) => s.enabled))
-          }}
-        />
-      )}
+      <AutoTradeDialog
+        open={autoTradeDialog.open}
+        onOpenChange={(open) => setAutoTradeDialog((prev) => ({ ...prev, open }))}
+        strategy={autoTradeDialog.strategy}
+      />
 
       <TradeExecutionsDialog
         open={tradeExecutionsDialog.open}
-        onOpenChange={(open) => setTradeExecutionsDialog({ ...tradeExecutionsDialog, open })}
+        onOpenChange={(open) => setTradeExecutionsDialog((prev) => ({ ...prev, open }))}
         strategyId={tradeExecutionsDialog.strategyId}
         strategyName={tradeExecutionsDialog.strategyName}
       />

@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,10 +17,13 @@ import {
   fetchKyberSwapChains,
   type KyberSwapChain,
   getCachedTokensForChain,
+  getCurrentConfig,
+  forceRefreshConfig,
+  getTokensForChain as getLatestTokens,
 } from "@/lib/config"
 import { executeArbitrageQuery } from "@/lib/api"
 import { getApiProviderOptions } from "@/lib/api-config"
-import { Loader2, RefreshCw, Save, Zap, Globe, Key, Settings2 } from "lucide-react"
+import { Loader2, RefreshCw, Save, Zap, Globe, Key, Settings2, Check, ChevronsUpDown, AlertCircle } from "lucide-react"
 import { ArbitrageFlowDiagram } from "@/components/arbitrage-flow-diagram"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
@@ -29,8 +32,8 @@ import type { Strategy, TokenDetail } from "@/lib/types"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Check, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { WalletSelector } from "@/components/wallet-selector"
 
 export default function ConfigureStrategyPage() {
   const router = useRouter()
@@ -68,6 +71,7 @@ export default function ConfigureStrategyPage() {
     dexFee: "0.003",
     minProfitPercentage: "1.0",
     autoTrade: false,
+    walletAddress: "", // 新增: 钱包地址
     preferredApiProvider: "",
     fallbackApiProviders: [] as string[],
   })
@@ -108,6 +112,153 @@ export default function ConfigureStrategyPage() {
   // 代币详情状态
   const [sourceTokenDetails, setSourceTokenDetails] = useState<TokenDetail[]>([])
   const [targetTokenDetails, setTargetTokenDetails] = useState<TokenDetail[]>([])
+  const [sourceTokenSearch, setSourceTokenSearch] = useState("")
+  const [sourceTargetTokenSearch, setSourceTargetTokenSearch] = useState("")
+  const [targetTokenSearch, setTargetTokenSearch] = useState("")
+  const [targetSourceTokenSearch, setTargetSourceTokenSearch] = useState("")
+  const [loadingTokens, setLoadingTokens] = useState(false)
+
+  // 获取链ID的辅助函数
+  const getChainId = useCallback((chainName: string): number | null => {
+    try {
+      const { chains } = getCurrentConfig()
+      return chains[chainName] || null
+    } catch (error) {
+      console.error(`获取链ID失败: ${error}`)
+      return null
+    }
+  }, [])
+
+  // 添加加载代币详情的函数
+  const loadTokenDetails = useCallback(
+    async (chainName: string, isSourceChain: boolean) => {
+      try {
+        setLoadingTokens(true)
+        const chainId = getChainId(chainName)
+
+        if (!chainId) {
+          console.error(`找不到链ID: ${chainName}`)
+          return
+        }
+
+        // 获取缓存的代币详情
+        const tokenDetails = getCachedTokensForChain(chainId)
+
+        if (isSourceChain) {
+          setSourceTokenDetails(tokenDetails)
+        } else {
+          setTargetTokenDetails(tokenDetails)
+        }
+
+        // 如果没有缓存的代币详情，则使用基本代币列表
+        if (tokenDetails.length === 0) {
+          const tokens = getTokensForChain(chainName)
+          if (isSourceChain) {
+            setSourceTokens(tokens)
+            setSourceTargetTokens(tokens)
+          } else {
+            setTargetTokens(tokens)
+            setTargetSourceTokens(tokens)
+          }
+
+          toast({
+            title: `${chainName}链的代币信息`,
+            description: "使用基础代币列表，搜索功能可能受限",
+            variant: "default",
+          })
+        } else {
+          // 使用缓存的代币详情构建代币列表
+          const tokenSymbols = tokenDetails.map((token) => token.symbol)
+          if (isSourceChain) {
+            setSourceTokens(tokenSymbols)
+            setSourceTargetTokens(tokenSymbols)
+          } else {
+            setTargetTokens(tokenSymbols)
+            setTargetSourceTokens(tokenSymbols)
+          }
+
+          toast({
+            title: `${chainName}链的代币信息`,
+            description: `已加载 ${tokenDetails.length} 个代币，支持搜索`,
+            variant: "default",
+          })
+        }
+      } catch (error) {
+        console.error(`加载代币详情失败: ${error}`)
+        toast({
+          title: "加载代币失败",
+          description: `无法加载代币详情: ${error instanceof Error ? error.message : "未知错误"}`,
+          variant: "destructive",
+        })
+      } finally {
+        setLoadingTokens(false)
+      }
+    },
+    [toast, getChainId],
+  )
+
+  // 添加懒加载代币详情的函数
+  const lazyLoadTokenDetails = useCallback(
+    (chainName: string, isSourceChain: boolean) => {
+      if (loadingTokens) return
+
+      const tokenDetails = isSourceChain ? sourceTokenDetails : targetTokenDetails
+      if (tokenDetails.length > 0) return
+
+      loadTokenDetails(chainName, isSourceChain)
+    },
+    [loadingTokens, sourceTokenDetails, targetTokenDetails, loadTokenDetails],
+  )
+
+  // 添加代币搜索过滤函数
+  const filterTokens = useCallback((tokens: TokenDetail[], search: string): TokenDetail[] => {
+    if (!search.trim()) return tokens
+
+    const searchLower = search.toLowerCase().trim()
+    return tokens.filter(
+      (token) =>
+        token.symbol.toLowerCase().includes(searchLower) ||
+        token.address.toLowerCase().includes(searchLower) ||
+        (token.name && token.name.toLowerCase().includes(searchLower)),
+    )
+  }, [])
+
+  // 添加过滤后的代币列表
+  const filteredSourceTokens = useMemo(() => {
+    return sourceTokenDetails.length > 0
+      ? filterTokens(sourceTokenDetails, sourceTokenSearch)
+      : sourceTokens.map((symbol) => ({ symbol, address: "", chainId: 0, name: symbol, decimals: 18 }))
+  }, [sourceTokenDetails, sourceTokens, sourceTokenSearch, filterTokens])
+
+  const filteredSourceTargetTokens = useMemo(() => {
+    return sourceTokenDetails.length > 0
+      ? filterTokens(sourceTokenDetails, sourceTargetTokenSearch)
+      : sourceTargetTokens.map((symbol) => ({ symbol, address: "", chainId: 0, name: symbol, decimals: 18 }))
+  }, [sourceTokenDetails, sourceTargetTokens, sourceTargetTokenSearch, filterTokens])
+
+  const filteredTargetTokens = useMemo(() => {
+    return targetTokenDetails.length > 0
+      ? filterTokens(targetTokenDetails, targetTokenSearch)
+      : targetTokens.map((symbol) => ({ symbol, address: "", chainId: 0, name: symbol, decimals: 18 }))
+  }, [targetTokenDetails, targetTokens, targetTokenSearch, filterTokens])
+
+  const filteredTargetSourceTokens = useMemo(() => {
+    return targetTokenDetails.length > 0
+      ? filterTokens(targetTokenDetails, targetSourceTokenSearch)
+      : targetSourceTokens.map((symbol) => ({ symbol, address: "", chainId: 0, name: symbol, decimals: 18 }))
+  }, [targetTokenDetails, targetSourceTokens, targetSourceTokenSearch, filterTokens])
+
+  // 添加代币加载状态指示器组件
+  const TokenLoadingIndicator = () => {
+    if (!loadingTokens) return null
+
+    return (
+      <div className="fixed bottom-4 right-4 bg-primary text-primary-foreground px-4 py-2 rounded-md shadow-md flex items-center space-x-2">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <span>加载代币中...</span>
+      </div>
+    )
+  }
 
   // 获取代币详情
   const getTokenDetails = useCallback(
@@ -138,6 +289,9 @@ export default function ConfigureStrategyPage() {
   // 初始化函数
   const initializeChains = useCallback(() => {
     if (!isInitialized) {
+      // 强制刷新配置以获取最新代币
+      forceRefreshConfig()
+
       const names = getChainNames()
       const apiOptions = getApiProviderOptions()
 
@@ -146,7 +300,7 @@ export default function ConfigureStrategyPage() {
 
       if (names.length > 0) {
         const defaultSourceChain = names[0]
-        const sourceTokensList = getTokensForChain(defaultSourceChain)
+        const sourceTokensList = getLatestTokens(defaultSourceChain)
         const sourceTargetTokensList = [...sourceTokensList]
 
         setSourceTokens(sourceTokensList)
@@ -325,6 +479,12 @@ export default function ConfigureStrategyPage() {
 
   // 当源链变化时更新源代币列表
   const handleSourceChainChange = (value: string) => {
+    // 强制刷新配置以获取最新代币
+    forceRefreshConfig()
+
+    // 加载代币详情
+    loadTokenDetails(value, true)
+
     if (useKyberData) {
       // 查找对应的KyberSwap链
       const kyberChain = kyberChains.find((chain) => chain.displayName.toUpperCase().replace(/\s+/g, "_") === value)
@@ -343,7 +503,7 @@ export default function ConfigureStrategyPage() {
             ...prev,
             sourceChain: value,
             sourceToken: tokenSymbols.length > 0 ? tokenSymbols[0] : "",
-            sourceTargetToken: tokenSymbols.length > 1 ? tokenSymbols[1] : tokenSymbols[0],
+            sourceTargetToken: tokenSymbols.length > 1 ? tokenSymbols[1].symbol : tokenSymbols[0],
           }))
 
           const tokenDetails = getTokenDetails(value)
@@ -354,7 +514,7 @@ export default function ConfigureStrategyPage() {
     }
 
     // 回退到原始处理方式
-    const tokens = getTokensForChain(value)
+    const tokens = getLatestTokens(value)
     setSourceTokens(tokens)
     setSourceTargetTokens(tokens)
 
@@ -364,10 +524,18 @@ export default function ConfigureStrategyPage() {
       sourceToken: tokens.length > 0 ? tokens[0] : "",
       sourceTargetToken: tokens.length > 1 ? tokens[1] : tokens[0],
     }))
+
+    console.log(`源链 ${value} 可用代币数量: ${tokens.length}`)
   }
 
   // 当目标链变化时更新目标代币列表
   const handleTargetChainChange = (value: string) => {
+    // 强制刷新配置以获取最新代币
+    forceRefreshConfig()
+
+    // 加载代币详情
+    loadTokenDetails(value, false)
+
     if (useKyberData) {
       // 查找对应的KyberSwap链
       const kyberChain = kyberChains.find((chain) => chain.displayName.toUpperCase().replace(/\s+/g, "_") === value)
@@ -397,7 +565,7 @@ export default function ConfigureStrategyPage() {
     }
 
     // 回退到原始处理方式
-    const tokens = getTokensForChain(value)
+    const tokens = getLatestTokens(value)
     setTargetTokens(tokens)
     setTargetSourceTokens(tokens)
 
@@ -407,6 +575,8 @@ export default function ConfigureStrategyPage() {
       targetToken: tokens.length > 0 ? tokens[0] : "",
       targetSourceToken: tokens.length > 1 ? tokens[1] : tokens[0],
     }))
+
+    console.log(`目标链 ${value} 可用代币数量: ${tokens.length}`)
   }
 
   // 处理表单输入变化
@@ -431,6 +601,14 @@ export default function ConfigureStrategyPage() {
     setFormData((prev) => ({
       ...prev,
       fallbackApiProviders: providers,
+    }))
+  }
+
+  // 处理钱包选择
+  const handleWalletSelect = (walletAddress: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      walletAddress,
     }))
   }
 
@@ -585,6 +763,16 @@ export default function ConfigureStrategyPage() {
       return
     }
 
+    // 如果启用自动交易但未选择钱包，给出警告
+    if (formData.autoTrade && !formData.walletAddress) {
+      toast({
+        title: "警告",
+        description: "启用自动交易需要选择钱包地址",
+        variant: "destructive",
+      })
+      return
+    }
+
     // 创建新策略
     const newStrategy: Strategy = {
       id: crypto.randomUUID(),
@@ -603,6 +791,8 @@ export default function ConfigureStrategyPage() {
       networkFee: formData.networkFee,
       bridgeFee: formData.bridgeFee,
       dexFee: formData.dexFee,
+      autoTrade: formData.autoTrade,
+      walletAddress: formData.walletAddress || undefined, // 新增: 钱包地址
       interval: 60000, // 默认每分钟检查一次
     }
 
@@ -643,6 +833,8 @@ export default function ConfigureStrategyPage() {
     onOpenChange,
     disabled = false,
     onLoadTokens,
+    searchValue,
+    onSearchChange,
   }: {
     value: string
     onValueChange: (value: string) => void
@@ -652,6 +844,8 @@ export default function ConfigureStrategyPage() {
     onOpenChange: (open: boolean) => void
     disabled?: boolean
     onLoadTokens?: () => void
+    searchValue: string
+    onSearchChange: (value: string) => void
   }) => {
     const selectedToken = tokens.find((token) => token.symbol === value)
 
@@ -721,7 +915,18 @@ export default function ConfigureStrategyPage() {
                 return 0
               }}
             >
-              <CommandInput placeholder="搜索代币 (支持 *SQD* 模糊查询)" className="h-9" />
+              <CommandInput
+                placeholder="搜索代币 (支持 *SQD* 模糊查询)"
+                className="h-9"
+                value={searchValue}
+                onValueChange={onSearchChange}
+              />
+              {loadingTokens && (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="ml-2 text-sm text-muted-foreground">加载代币中...</span>
+                </div>
+              )}
               <CommandList>
                 <CommandEmpty>未找到匹配的代币</CommandEmpty>
                 <CommandGroup>
@@ -732,6 +937,7 @@ export default function ConfigureStrategyPage() {
                       onSelect={() => {
                         onValueChange(token.symbol)
                         onOpenChange(false)
+                        onSearchChange("")
                       }}
                     >
                       <div className="flex items-center gap-2 w-full">
@@ -769,10 +975,10 @@ export default function ConfigureStrategyPage() {
             variant="outline"
             size="sm"
             onClick={onLoadTokens}
-            disabled={loadingKyberData}
+            disabled={loadingTokens}
             className="whitespace-nowrap"
           >
-            {loadingKyberData ? <Loader2 className="h-4 w-4 animate-spin" /> : "加载代币"}
+            {loadingTokens ? <Loader2 className="h-4 w-4 animate-spin" /> : "加载代币"}
           </Button>
         )}
       </div>
@@ -828,8 +1034,9 @@ export default function ConfigureStrategyPage() {
       </div>
 
       <Tabs defaultValue="basic" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="basic">基本配置</TabsTrigger>
+          <TabsTrigger value="wallet">钱包设置</TabsTrigger>
           <TabsTrigger value="api">API设置</TabsTrigger>
           <TabsTrigger value="advanced">高级设置</TabsTrigger>
         </TabsList>
@@ -955,11 +1162,13 @@ export default function ConfigureStrategyPage() {
                     <TokenSelector
                       value={formData.sourceToken}
                       onValueChange={(value) => handleSelectChange("sourceToken", value)}
-                      tokens={sourceTokenDetails}
+                      tokens={filteredSourceTokens}
                       placeholder="选择源代币"
                       open={sourceTokenOpen}
                       onOpenChange={setSourceTokenOpen}
                       disabled={!formData.sourceChain}
+                      searchValue={sourceTokenSearch}
+                      onSearchChange={setSourceTokenSearch}
                       onLoadTokens={
                         useKyberData && formData.sourceChain
                           ? () => {
@@ -971,7 +1180,7 @@ export default function ConfigureStrategyPage() {
                                 loadChainTokens(kyberChain.chainId)
                               }
                             }
-                          : undefined
+                          : () => loadTokenDetails(formData.sourceChain, true)
                       }
                     />
                   </div>
@@ -981,11 +1190,13 @@ export default function ConfigureStrategyPage() {
                     <TokenSelector
                       value={formData.sourceTargetToken}
                       onValueChange={(value) => handleSelectChange("sourceTargetToken", value)}
-                      tokens={sourceTokenDetails}
+                      tokens={filteredSourceTargetTokens}
                       placeholder="选择目标代币"
                       open={sourceTargetTokenOpen}
                       onOpenChange={setSourceTargetTokenOpen}
                       disabled={!formData.sourceChain}
+                      searchValue={sourceTargetTokenSearch}
+                      onSearchChange={setSourceTargetTokenSearch}
                     />
                   </div>
                 </div>
@@ -1032,11 +1243,13 @@ export default function ConfigureStrategyPage() {
                     <TokenSelector
                       value={formData.targetToken}
                       onValueChange={(value) => handleSelectChange("targetToken", value)}
-                      tokens={targetTokenDetails}
+                      tokens={filteredTargetTokens}
                       placeholder="选择目标代币"
                       open={targetTokenOpen}
                       onOpenChange={setTargetTokenOpen}
                       disabled={!formData.targetChain}
+                      searchValue={targetTokenSearch}
+                      onSearchChange={setTargetTokenSearch}
                       onLoadTokens={
                         useKyberData && formData.targetChain
                           ? () => {
@@ -1048,7 +1261,7 @@ export default function ConfigureStrategyPage() {
                                 loadChainTokens(kyberChain.chainId)
                               }
                             }
-                          : undefined
+                          : () => loadTokenDetails(formData.targetChain, false)
                       }
                     />
                   </div>
@@ -1058,11 +1271,13 @@ export default function ConfigureStrategyPage() {
                     <TokenSelector
                       value={formData.targetSourceToken}
                       onValueChange={(value) => handleSelectChange("targetSourceToken", value)}
-                      tokens={targetTokenDetails}
+                      tokens={filteredTargetSourceTokens}
                       placeholder="选择源代币"
                       open={targetSourceTokenOpen}
                       onOpenChange={setTargetSourceTokenOpen}
                       disabled={!formData.targetChain}
+                      searchValue={targetSourceTokenSearch}
+                      onSearchChange={setTargetSourceTokenSearch}
                     />
                   </div>
                 </div>
@@ -1215,6 +1430,10 @@ export default function ConfigureStrategyPage() {
               </CardFooter>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="wallet" className="space-y-4 mt-4">
+          <WalletSelector selectedWallet={formData.walletAddress} onWalletSelect={handleWalletSelect} />
         </TabsContent>
 
         <TabsContent value="api" className="space-y-4 mt-4">
@@ -1411,10 +1630,25 @@ export default function ConfigureStrategyPage() {
                   启用自动交易
                 </label>
               </div>
+
+              {formData.autoTrade && !formData.walletAddress && (
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-medium text-yellow-800">需要选择钱包</h4>
+                      <p className="text-sm text-yellow-700 mt-1">
+                        启用自动交易需要在"钱包设置"选项卡中选择一个钱包地址
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+      <TokenLoadingIndicator />
     </div>
   )
 }
