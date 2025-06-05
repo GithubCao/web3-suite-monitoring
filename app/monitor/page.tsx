@@ -7,9 +7,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import type { Strategy, ArbitrageOpportunity, PriceHistoryRecord } from "@/lib/types"
 import { getStrategies, updateStrategyStatus, addPriceHistoryRecord } from "@/lib/storage"
-import { executeArbitrageQuery, calculateProfitPercentage, executeArbitrageTrade } from "@/lib/api"
+import { executeArbitrageQuery, executeArbitrageTrade } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
-import { AlertCircle, Play, Square, RefreshCw, History, Route, Zap, Settings, FileText } from "lucide-react"
+import { AlertCircle, Play, Square, RefreshCw, History, Route, Zap, Settings, FileText, Bell } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -20,6 +20,8 @@ import { TradeExecutionDialog } from "@/components/trade-execution-dialog"
 import { AutoTradeDialog } from "@/components/auto-trade-dialog"
 import { TradeExecutionsDialog } from "@/components/trade-executions-dialog"
 import { DashboardStats } from "@/components/dashboard-stats"
+import { notificationManager } from "@/lib/notification"
+import { NotificationSettingsDialog } from "@/components/notification-settings-dialog"
 
 export default function MonitorPage() {
   const [strategies, setStrategies] = useState<Strategy[]>([])
@@ -58,6 +60,8 @@ export default function MonitorPage() {
     strategyId: "",
     strategyName: "",
   })
+
+  const [notificationSettingsDialog, setNotificationSettingsDialog] = useState(false)
 
   // 加载策略
   useEffect(() => {
@@ -159,12 +163,12 @@ export default function MonitorPage() {
             strategy.gasFee,
             strategy.networkFee,
             strategy.bridgeFee,
-            strategy.dexFee
+            strategy.dexFee,
           )
 
           // 使用API返回的净利润百分比，不再需要单独计算
           const netProfitPercentage = result.netProfitPercentage
-          console.log(`result : ${JSON.stringify(result)} `);
+          console.log(`result : ${JSON.stringify(result)} `)
           // 添加到机会列表
           const opportunity: ArbitrageOpportunity = {
             strategyId: strategy.id,
@@ -198,6 +202,13 @@ export default function MonitorPage() {
 
           // 如果利润超过阈值，发送通知
           if (netProfitPercentage > 1.0) {
+            // 发送通知和声音提醒
+            await notificationManager.showNotification(
+              "发现套利机会!",
+              `策略 ${strategy.name} 发现 ${netProfitPercentage.toFixed(2)}% 的套利机会`,
+              netProfitPercentage,
+            )
+
             toast({
               title: "发现套利机会!",
               description: `策略 ${strategy.name} 发现 ${netProfitPercentage.toFixed(2)}% 的套利机会`,
@@ -212,30 +223,30 @@ export default function MonitorPage() {
             ) {
               try {
                 await executeArbitrageTrade(
-                strategy.id,
-                strategy.name,
-                strategy.sourceChain,
-                strategy.targetChain,
-                strategy.sourceToken,
-                strategy.targetToken,
+                  strategy.id,
+                  strategy.name,
+                  strategy.sourceChain,
+                  strategy.targetChain,
+                  strategy.sourceToken,
+                  strategy.targetToken,
                   strategy.amount,
-                result.sourcePrice,
-                result.targetPrice,
-                  netProfitPercentage
+                  result.sourcePrice,
+                  result.targetPrice,
+                  netProfitPercentage,
                 )
 
-                  toast({
+                toast({
                   title: "自动交易执行",
                   description: `策略 ${strategy.name} 已自动执行套利交易`,
-                  })
+                })
               } catch (error) {
                 console.error("自动交易执行失败:", error)
-                  toast({
+                toast({
                   title: "自动交易失败",
                   description: `策略 ${strategy.name} 的自动交易执行失败`,
-                    variant: "destructive",
-                  })
-                }
+                  variant: "destructive",
+                })
+              }
             }
           }
         } catch (error) {
@@ -293,7 +304,7 @@ export default function MonitorPage() {
       const newActiveStrategies = updatedStrategies.filter((s) => s.enabled)
       setActiveStrategies(newActiveStrategies)
 
-    updateStrategyStatus(id, !currentStatus)
+      updateStrategyStatus(id, !currentStatus)
 
       if (newActiveStrategies.length > 0 && !isMonitoring) {
         setIsMonitoring(true)
@@ -344,7 +355,7 @@ export default function MonitorPage() {
 
   // 打开交易路径详情对话框
   const openRouteDetails = (opportunity: ArbitrageOpportunity) => {
-    console.log(`opportunity : ${JSON.stringify(opportunity)} `);
+    console.log(`opportunity : ${JSON.stringify(opportunity)} `)
     setRouteDetailsDialog({
       open: true,
       sourceChain: opportunity.sourceChain,
@@ -393,16 +404,16 @@ export default function MonitorPage() {
   // 格式化金额
   const formatAmount = (amount: string) => {
     try {
-      const num = parseFloat(amount);
+      const num = Number.parseFloat(amount)
       // 对于小数部分，如果数值较小则显示更多小数位
-      if (num < 0.001) return num.toFixed(8);
-      if (num < 0.01) return num.toFixed(8);
-      if (num < 1) return num.toFixed(8);
-      if (num < 1000) return num.toFixed(8);
+      if (num < 0.001) return num.toFixed(8)
+      if (num < 0.01) return num.toFixed(8)
+      if (num < 1) return num.toFixed(8)
+      if (num < 1000) return num.toFixed(8)
       // 大数值添加千位分隔符
-      return num.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+      return num.toLocaleString("zh-CN", { maximumFractionDigits: 2 })
     } catch (e) {
-      return amount;
+      return amount
     }
   }
 
@@ -413,16 +424,20 @@ export default function MonitorPage() {
     if (profit < 0) return "text-red-500"
     return ""
   }
- 
+
   // 过滤机会
   const filteredOpportunities =
     selectedStrategy === "all" ? opportunities : opportunities.filter((o) => o.strategyId === selectedStrategy)
- 
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">监控中心</h1>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setNotificationSettingsDialog(true)}>
+            <Bell className="mr-2 h-4 w-4" />
+            通知设置
+          </Button>
           <Button variant="outline" onClick={handleManualRefresh} disabled={activeStrategies.length === 0}>
             <RefreshCw className="mr-2 h-4 w-4" />
             刷新价格
@@ -513,7 +528,10 @@ export default function MonitorPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm text-gray-600">
-                    <p>交易流程: 在源链上将源代币兑换为目标代币(输出金额) → 跨链转移到目标链 → 在目标链上将目标代币兑换回源代币(最终金额)</p>
+                    <p>
+                      交易流程: 在源链上将源代币兑换为目标代币(输出金额) → 跨链转移到目标链 →
+                      在目标链上将目标代币兑换回源代币(最终金额)
+                    </p>
                     <p>利润百分比 = (最终金额 - 初始金额) / 初始金额 × 100%</p>
                   </div>
                   {filteredOpportunities.length === 0 ? (
@@ -534,66 +552,71 @@ export default function MonitorPage() {
                       <TableBody>
                         {filteredOpportunities.map((opportunity, index) => {
                           // 获取对应策略以获取代币符号
-                          const strategy = strategies.find(s => s.id === opportunity.strategyId);
-                          const sourceToken = strategy?.sourceToken || '';
-                          const targetToken = strategy?.targetToken || '';
-                          
+                          const strategy = strategies.find((s) => s.id === opportunity.strategyId)
+                          const sourceToken = strategy?.sourceToken || ""
+                          const targetToken = strategy?.targetToken || ""
+
                           return (
-                          <TableRow key={`${opportunity.strategyId}-${index}`}>
-                            <TableCell className="font-medium">{opportunity.strategyName}</TableCell>
-                            <TableCell>
-                              {opportunity.sourceChain} → {opportunity.targetChain}
-                              <div className="text-xs text-gray-500 mt-1">
-                                {sourceToken} → {targetToken} → {sourceToken}
-                              </div>
-                            </TableCell>
-                            
-                            <TableCell>{formatAmount(opportunity.sourceOutputAmount.toString())} {targetToken}</TableCell>
-                            <TableCell>{formatAmount(opportunity.finalOutputAmount.toString())} {sourceToken}</TableCell>
-                            <TableCell className={getProfitColor(opportunity.profitPercentage)}>
-                              {opportunity.profitPercentage.toFixed(2)}%
-                              {opportunity.profitPercentage > 1.0 && (
-                                <Badge variant="outline" className="ml-2 bg-green-100 text-green-800">
-                                  套利机会
-                                </Badge>
-                              )}
-                            </TableCell>
-                            <TableCell>{formatTime(opportunity.timestamp)}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() => openPriceHistory(opportunity.strategyId, opportunity.strategyName)}
-                                  title="查看价格历史"
-                                >
-                                  <History className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() => openRouteDetails(opportunity)}
-                                  title="查看交易路径"
-                                >
-                                  <Route className="h-4 w-4" />
-                                </Button>
-                                {opportunity.profitPercentage > 0 && (
-                                  <Button
-                                    variant={opportunity.profitPercentage > 1.0 ? "default" : "outline"}
-                                    className={
-                                      opportunity.profitPercentage > 1.0 ? "bg-blue-600 hover:bg-blue-700" : ""
-                                    }
-                                    size="icon"
-                                    onClick={() => openTradeExecution(opportunity)}
-                                    title="执行交易"
-                                  >
-                                    <Zap className="h-4 w-4" />
-                                  </Button>
+                            <TableRow key={`${opportunity.strategyId}-${index}`}>
+                              <TableCell className="font-medium">{opportunity.strategyName}</TableCell>
+                              <TableCell>
+                                {opportunity.sourceChain} → {opportunity.targetChain}
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {sourceToken} → {targetToken} → {sourceToken}
+                                </div>
+                              </TableCell>
+
+                              <TableCell>
+                                {formatAmount(opportunity.sourceOutputAmount.toString())} {targetToken}
+                              </TableCell>
+                              <TableCell>
+                                {formatAmount(opportunity.finalOutputAmount.toString())} {sourceToken}
+                              </TableCell>
+                              <TableCell className={getProfitColor(opportunity.profitPercentage)}>
+                                {opportunity.profitPercentage.toFixed(2)}%
+                                {opportunity.profitPercentage > 1.0 && (
+                                  <Badge variant="outline" className="ml-2 bg-green-100 text-green-800">
+                                    套利机会
+                                  </Badge>
                                 )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )})}
+                              </TableCell>
+                              <TableCell>{formatTime(opportunity.timestamp)}</TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => openPriceHistory(opportunity.strategyId, opportunity.strategyName)}
+                                    title="查看价格历史"
+                                  >
+                                    <History className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => openRouteDetails(opportunity)}
+                                    title="查看交易路径"
+                                  >
+                                    <Route className="h-4 w-4" />
+                                  </Button>
+                                  {opportunity.profitPercentage > 0 && (
+                                    <Button
+                                      variant={opportunity.profitPercentage > 1.0 ? "default" : "outline"}
+                                      className={
+                                        opportunity.profitPercentage > 1.0 ? "bg-blue-600 hover:bg-blue-700" : ""
+                                      }
+                                      size="icon"
+                                      onClick={() => openTradeExecution(opportunity)}
+                                      title="执行交易"
+                                    >
+                                      <Zap className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
                       </TableBody>
                     </Table>
                   )}
@@ -744,6 +767,8 @@ export default function MonitorPage() {
         strategyId={tradeExecutionsDialog.strategyId}
         strategyName={tradeExecutionsDialog.strategyName}
       />
+
+      <NotificationSettingsDialog open={notificationSettingsDialog} onOpenChange={setNotificationSettingsDialog} />
     </div>
   )
 }
