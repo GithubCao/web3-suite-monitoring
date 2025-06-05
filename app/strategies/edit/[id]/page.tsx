@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Search, Loader2 } from "lucide-react"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { getCurrentConfig, forceRefreshConfig, getTokensForChain as getLatestTokens } from "@/lib/config"
 
 export default function EditStrategyPage({ params }: { params: { id: string } }) {
   const router = useRouter()
@@ -26,7 +27,6 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
 
   // 在组件挂载时刷新配置
   useEffect(() => {
-    const { forceRefreshConfig } = require("@/lib/config")
     forceRefreshConfig()
   }, [])
 
@@ -145,7 +145,6 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
   const getChainId = useCallback((chainName: string): number | null => {
     try {
       // 导入的config.ts中应该有getChainId函数
-      const { getCurrentConfig } = require("@/lib/config")
       const { chains } = getCurrentConfig()
       return chains[chainName] || null
     } catch (error) {
@@ -222,7 +221,6 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
 
   useEffect(() => {
     // 首先刷新配置
-    const { forceRefreshConfig } = require("@/lib/config")
     forceRefreshConfig()
 
     // 加载策略数据
@@ -267,7 +265,6 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
 
   const handleSourceChainChange = (value: string) => {
     // 强制刷新配置以获取最新代币
-    const { forceRefreshConfig, getTokensForChain: getLatestTokens } = require("@/lib/config")
     forceRefreshConfig()
 
     // 加载代币详情
@@ -289,7 +286,6 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
 
   const handleTargetChainChange = (value: string) => {
     // 强制刷新配置以获取最新代币
-    const { forceRefreshConfig, getTokensForChain: getLatestTokens } = require("@/lib/config")
     forceRefreshConfig()
 
     // 加载代币详情
