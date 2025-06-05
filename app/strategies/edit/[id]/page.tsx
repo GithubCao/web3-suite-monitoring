@@ -484,9 +484,39 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-full p-0" align="start">
-                      <Command>
+                      <Command
+                        filter={(value, search) => {
+                          if (!search) return 1
+                          const searchLower = search.toLowerCase().trim()
+                          const valueLower = value.toLowerCase()
+
+                          // 支持多种搜索模式
+                          // 1. 直接包含搜索
+                          if (valueLower.includes(searchLower)) return 1
+
+                          // 2. 支持 *keyword* 模糊搜索
+                          if (searchLower.startsWith("*") && searchLower.endsWith("*")) {
+                            const keyword = searchLower.slice(1, -1)
+                            if (keyword && valueLower.includes(keyword)) return 1
+                          }
+
+                          // 3. 支持 keyword* 前缀搜索
+                          if (searchLower.endsWith("*")) {
+                            const prefix = searchLower.slice(0, -1)
+                            if (prefix && valueLower.startsWith(prefix)) return 1
+                          }
+
+                          // 4. 支持 *keyword 后缀搜索
+                          if (searchLower.startsWith("*")) {
+                            const suffix = searchLower.slice(1)
+                            if (suffix && valueLower.endsWith(suffix)) return 1
+                          }
+
+                          return 0
+                        }}
+                      >
                         <CommandInput
-                          placeholder="搜索代币..."
+                          placeholder="搜索代币 (支持 *SQD* 模糊查询)"
                           value={sourceTokenSearch}
                           onValueChange={setSourceTokenSearch}
                         />
@@ -509,10 +539,13 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
                                   setSourceTokenSearch("")
                                 }}
                               >
-                                <div className="flex items-center">
+                                <div className="flex flex-col">
                                   <span>{token.symbol}</span>
+                                  {token.name && token.name !== token.symbol && (
+                                    <span className="text-xs text-muted-foreground">{token.name}</span>
+                                  )}
                                   {token.address && (
-                                    <span className="ml-2 text-xs text-muted-foreground">
+                                    <span className="text-xs text-muted-foreground">
                                       {token.address.substring(0, 6)}...
                                       {token.address.substring(token.address.length - 4)}
                                     </span>
@@ -542,9 +575,39 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-full p-0" align="start">
-                      <Command>
+                      <Command
+                        filter={(value, search) => {
+                          if (!search) return 1
+                          const searchLower = search.toLowerCase().trim()
+                          const valueLower = value.toLowerCase()
+
+                          // 支持多种搜索模式
+                          // 1. 直接包含搜索
+                          if (valueLower.includes(searchLower)) return 1
+
+                          // 2. 支持 *keyword* 模糊搜索
+                          if (searchLower.startsWith("*") && searchLower.endsWith("*")) {
+                            const keyword = searchLower.slice(1, -1)
+                            if (keyword && valueLower.includes(keyword)) return 1
+                          }
+
+                          // 3. 支持 keyword* 前缀搜索
+                          if (searchLower.endsWith("*")) {
+                            const prefix = searchLower.slice(0, -1)
+                            if (prefix && valueLower.startsWith(prefix)) return 1
+                          }
+
+                          // 4. 支持 *keyword 后缀搜索
+                          if (searchLower.startsWith("*")) {
+                            const suffix = searchLower.slice(1)
+                            if (suffix && valueLower.endsWith(suffix)) return 1
+                          }
+
+                          return 0
+                        }}
+                      >
                         <CommandInput
-                          placeholder="搜索代币..."
+                          placeholder="搜索代币 (支持 *SQD* 模糊查询)"
                           value={sourceTargetTokenSearch}
                           onValueChange={setSourceTargetTokenSearch}
                         />
@@ -567,10 +630,13 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
                                   setSourceTargetTokenSearch("")
                                 }}
                               >
-                                <div className="flex items-center">
+                                <div className="flex flex-col">
                                   <span>{token.symbol}</span>
+                                  {token.name && token.name !== token.symbol && (
+                                    <span className="text-xs text-muted-foreground">{token.name}</span>
+                                  )}
                                   {token.address && (
-                                    <span className="ml-2 text-xs text-muted-foreground">
+                                    <span className="text-xs text-muted-foreground">
                                       {token.address.substring(0, 6)}...
                                       {token.address.substring(token.address.length - 4)}
                                     </span>
@@ -619,9 +685,39 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-full p-0" align="start">
-                      <Command>
+                      <Command
+                        filter={(value, search) => {
+                          if (!search) return 1
+                          const searchLower = search.toLowerCase().trim()
+                          const valueLower = value.toLowerCase()
+
+                          // 支持多种搜索模式
+                          // 1. 直接包含搜索
+                          if (valueLower.includes(searchLower)) return 1
+
+                          // 2. 支持 *keyword* 模糊搜索
+                          if (searchLower.startsWith("*") && searchLower.endsWith("*")) {
+                            const keyword = searchLower.slice(1, -1)
+                            if (keyword && valueLower.includes(keyword)) return 1
+                          }
+
+                          // 3. 支持 keyword* 前缀搜索
+                          if (searchLower.endsWith("*")) {
+                            const prefix = searchLower.slice(0, -1)
+                            if (prefix && valueLower.startsWith(prefix)) return 1
+                          }
+
+                          // 4. 支持 *keyword 后缀搜索
+                          if (searchLower.startsWith("*")) {
+                            const suffix = searchLower.slice(1)
+                            if (suffix && valueLower.endsWith(suffix)) return 1
+                          }
+
+                          return 0
+                        }}
+                      >
                         <CommandInput
-                          placeholder="搜索代币..."
+                          placeholder="搜索代币 (支持 *SQD* 模糊查询)"
                           value={targetTokenSearch}
                           onValueChange={setTargetTokenSearch}
                         />
@@ -644,10 +740,13 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
                                   setTargetTokenSearch("")
                                 }}
                               >
-                                <div className="flex items-center">
+                                <div className="flex flex-col">
                                   <span>{token.symbol}</span>
+                                  {token.name && token.name !== token.symbol && (
+                                    <span className="text-xs text-muted-foreground">{token.name}</span>
+                                  )}
                                   {token.address && (
-                                    <span className="ml-2 text-xs text-muted-foreground">
+                                    <span className="text-xs text-muted-foreground">
                                       {token.address.substring(0, 6)}...
                                       {token.address.substring(token.address.length - 4)}
                                     </span>
@@ -677,9 +776,39 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-full p-0" align="start">
-                      <Command>
+                      <Command
+                        filter={(value, search) => {
+                          if (!search) return 1
+                          const searchLower = search.toLowerCase().trim()
+                          const valueLower = value.toLowerCase()
+
+                          // 支持多种搜索模式
+                          // 1. 直接包含搜索
+                          if (valueLower.includes(searchLower)) return 1
+
+                          // 2. 支持 *keyword* 模糊搜索
+                          if (searchLower.startsWith("*") && searchLower.endsWith("*")) {
+                            const keyword = searchLower.slice(1, -1)
+                            if (keyword && valueLower.includes(keyword)) return 1
+                          }
+
+                          // 3. 支持 keyword* 前缀搜索
+                          if (searchLower.endsWith("*")) {
+                            const prefix = searchLower.slice(0, -1)
+                            if (prefix && valueLower.startsWith(prefix)) return 1
+                          }
+
+                          // 4. 支持 *keyword 后缀搜索
+                          if (searchLower.startsWith("*")) {
+                            const suffix = searchLower.slice(1)
+                            if (suffix && valueLower.endsWith(suffix)) return 1
+                          }
+
+                          return 0
+                        }}
+                      >
                         <CommandInput
-                          placeholder="搜索代币..."
+                          placeholder="搜索代币 (支持 *SQD* 模糊查询)"
                           value={targetSourceTokenSearch}
                           onValueChange={setTargetSourceTokenSearch}
                         />
@@ -702,10 +831,13 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
                                   setTargetSourceTokenSearch("")
                                 }}
                               >
-                                <div className="flex items-center">
+                                <div className="flex flex-col">
                                   <span>{token.symbol}</span>
+                                  {token.name && token.name !== token.symbol && (
+                                    <span className="text-xs text-muted-foreground">{token.name}</span>
+                                  )}
                                   {token.address && (
-                                    <span className="ml-2 text-xs text-muted-foreground">
+                                    <span className="text-xs text-muted-foreground">
                                       {token.address.substring(0, 6)}...
                                       {token.address.substring(token.address.length - 4)}
                                     </span>

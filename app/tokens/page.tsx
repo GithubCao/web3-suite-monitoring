@@ -162,8 +162,9 @@ export default function TokensPage() {
       updateTokensForChain(chainId, tokens)
 
       // 强制刷新全局配置缓存
-      const { forceRefreshConfig } = require("@/lib/config")
-      forceRefreshConfig()
+      import("@/lib/config").then(({ forceRefreshConfig }) => {
+        forceRefreshConfig()
+      })
 
       setMessage("代币配置已成功更新并同步到策略配置")
       setMessageType("success")
@@ -215,8 +216,9 @@ export default function TokensPage() {
       updateTokensForChain(Number(selectedChain), updatedTokens)
 
       // 强制刷新全局配置缓存
-      const { forceRefreshConfig } = require("@/lib/config")
-      forceRefreshConfig()
+      import("@/lib/config").then(({ forceRefreshConfig }) => {
+        forceRefreshConfig()
+      })
 
       // 重置表单并关闭对话框
       setNewToken({
@@ -330,8 +332,9 @@ export default function TokensPage() {
       updateTokensForChain(Number(selectedChain), updatedTokens)
 
       // 强制刷新全局配置缓存
-      const { forceRefreshConfig } = require("@/lib/config")
-      forceRefreshConfig()
+      import("@/lib/config").then(({ forceRefreshConfig }) => {
+        forceRefreshConfig()
+      })
 
       // 关闭对话框
       setDeleteTokenDialogOpen(false)
