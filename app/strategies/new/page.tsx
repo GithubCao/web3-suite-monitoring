@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/components/ui/use-toast"
 import type { Strategy } from "@/lib/types"
 import { addStrategy } from "@/lib/storage"
-import { getChainNames, getTokensForChain, getCommonTokens } from "@/lib/config"
+import { getChainNames, getCommonTokens } from "@/lib/config"
 import { getApiProviderOptions } from "@/lib/api-config"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -24,6 +24,15 @@ export default function NewStrategyPage() {
   const { toast } = useToast()
   const chainNames = getChainNames()
   const apiProviderOptions = getApiProviderOptions()
+
+  // 添加配置刷新状态
+  const [configRefreshKey, setConfigRefreshKey] = useState(0)
+
+  // 在组件挂载时刷新配置
+  useEffect(() => {
+    const { forceRefreshConfig } = require("@/lib/config")
+    forceRefreshConfig()
+  }, [])
 
   const [formData, setFormData] = useState<Partial<Strategy>>({
     name: "",
@@ -58,8 +67,13 @@ export default function NewStrategyPage() {
     }
   }, [formData.sourceChain, formData.targetChain])
 
+  // 修改 handleSourceChainChange 函数，确保获取最新的代币列表
   const handleSourceChainChange = (value: string) => {
-    const tokens = getTokensForChain(value)
+    // 强制刷新配置以获取最新代币
+    const { forceRefreshConfig, getTokensForChain: getLatestTokens } = require("@/lib/config")
+    forceRefreshConfig()
+
+    const tokens = getLatestTokens(value)
     setSourceTokens(tokens)
 
     let newSourceToken = ""
@@ -87,10 +101,17 @@ export default function NewStrategyPage() {
         })
       }
     }
+
+    console.log(`源链 ${value} 可用代币数量: ${tokens.length}`)
   }
 
+  // 修改 handleTargetChainChange 函数
   const handleTargetChainChange = (value: string) => {
-    const tokens = getTokensForChain(value)
+    // 强制刷新配置以获取最新代币
+    const { forceRefreshConfig, getTokensForChain: getLatestTokens } = require("@/lib/config")
+    forceRefreshConfig()
+
+    const tokens = getLatestTokens(value)
     setTargetTokens(tokens)
 
     let newTargetToken = ""
@@ -118,6 +139,8 @@ export default function NewStrategyPage() {
         })
       }
     }
+
+    console.log(`目标链 ${value} 可用代币数量: ${tokens.length}`)
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -585,7 +608,7 @@ export default function NewStrategyPage() {
           </CardContent>
           <CardFooter className="flex justify-between">
             <Button variant="outline" type="button" onClick={() => router.push("/strategies")}>
-              取消 
+              取消
             </Button>
             <Button type="submit">创建策略</Button>
           </CardFooter>
