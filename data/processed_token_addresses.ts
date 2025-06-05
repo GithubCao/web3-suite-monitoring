@@ -255,4 +255,4 @@ const tokensByChain = {
   }
 };
 
-export { tokensBySymbol, tokensByChain }; 
+export { tokensBySymbol, tokensByChain };

@@ -62,7 +62,7 @@ KyberSwap是一个强大的DEX聚合器，能够在多个区块链网络上为�
 
 ### KyberSwap API 使用示例:
 
-```typescript
+\`\`\`typescript
 // 获取交易报价
 const quote = await fetchPriceQuoteFromProvider(
   "base",      // 链名称
@@ -84,7 +84,7 @@ const priceImpact = await fetchKyberSwapPriceImpact(
   18,                                          // ETH小数位数
   6                                            // USDC小数位数
 );
-```
+\`\`\`
 
 更多详细示例请参考 [lib/examples/kyberswap-example.ts](lib/examples/kyberswap-example.ts)
 
@@ -119,7 +119,7 @@ const priceImpact = await fetchKyberSwapPriceImpact(
 
 ### 套利查询
 
-```typescript
+\`\`\`typescript
 executeArbitrageQuery(
   sourceChain: string,
   targetChain: string,
@@ -134,11 +134,11 @@ executeArbitrageQuery(
   bridgeFee?: string,
   dexFee?: string
 )
-```
+\`\`\`
 
 ### 价格查询
 
-```typescript
+\`\`\`typescript
 fetchPriceQuoteFromProvider(
   chainName: string,
   tokenInSymbol: string, 
@@ -147,22 +147,22 @@ fetchPriceQuoteFromProvider(
   providerId: string,
   slippage = "0.005"
 )
-```
+\`\`\`
 
 ### 多DEX价格比较
 
-```typescript
+\`\`\`typescript
 fetchMultiDexPrices(
   chainName: string,
   tokenInSymbol: string,
   tokenOutSymbol: string,
   amount: string
 )
-```
+\`\`\`
 
 ### 价格影响查询
 
-```typescript
+\`\`\`typescript
 fetchKyberSwapPriceImpact(
   apiConfig: ApiConfig,
   chainId: number,
@@ -173,7 +173,7 @@ fetchKyberSwapPriceImpact(
   tokenInDecimal?: number,
   tokenOutDecimal?: number
 )
-```
+\`\`\`
 
 ## 技术栈
 
@@ -185,33 +185,33 @@ fetchKyberSwapPriceImpact(
 
 ### 安装依赖
 
-```bash
+\`\`\`bash
 npm install
 # 或
 yarn install
 # 或
 pnpm install
-```
+\`\`\`
 
 ### 运行开发服务器
 
-```bash
+\`\`\`bash
 npm run dev
 # 或
 yarn dev
 # 或
 pnpm dev
-```
+\`\`\`
 
 ### 构建生产版本
 
-```bash
+\`\`\`bash
 npm run build
 # 或
 yarn build
 # 或
 pnpm build
-```
+\`\`\`
 
 ## 贡献指南
 

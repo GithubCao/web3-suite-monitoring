@@ -1112,4 +1112,4 @@ const ChainIdMap = {
   APE: 33139,
   SONIC: 146,
   HEMI: 43111
-}; 
+};
