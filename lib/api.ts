@@ -1,7 +1,11 @@
-import { getChainId, getTokenAddress } from "./config";
+import { getChainId, getTokenAddress, getTokenDecimals as configGetTokenDecimals, getCachedTokenByAddress } from "./config";
 import { getApiConfig, getApiConfigsForChain } from "./api-config";
 import type { PriceQuote, RouteStep, TradeExecution, ApiConfig } from "./types";
 import { addTradeExecution, updateTradeExecution } from "./storage";
+import { ethers } from "ethers";
+
+// 代币小数位数缓存
+const tokenDecimalsCache: Record<string, number> = {};
 
 // API提供商枚举
 export enum ApiProvider {
@@ -10,6 +14,7 @@ export enum ApiProvider {
   UNISWAP = "uniswap",
   PARASWAP = "paraswap",
   ZEROX = "0x",
+  KYBERSWAP = "kyberswap",
 }
 
 // 1inch API响应类型
@@ -75,6 +80,67 @@ interface OneInchPreset {
     coefficient: number;
   }>;
   startAmount: string;
+}
+
+// KyberSwap API响应类型
+interface KyberSwapRouteResponse {
+  code: number;
+  message: string;
+  data: {
+    routeSummary: {
+      tokenIn: string;
+      amountIn: string;
+      amountInUsd: string;
+      tokenOut: string;
+      amountOut: string;
+      amountOutUsd: string;
+      gas: string;
+      gasPrice: string;
+      gasUsd: string;
+      l1FeeUsd: string;
+      extraFee: {
+        feeAmount: string;
+        chargeFeeBy: string;
+        isInBps: boolean;
+        feeReceiver: string;
+      };
+      route: Array<
+        Array<{
+          pool: string;
+          tokenIn: string;
+          tokenOut: string;
+          swapAmount: string;
+          amountOut: string;
+          exchange: string;
+          poolType: string;
+          poolExtra: {
+            blockNumber: number;
+            priceLimit: number | string;
+          };
+          extra: {
+            ri?: string;
+            nSqrtRx96?: string;
+          };
+        }>
+      >;
+      routeID: string;
+      checksum: string;
+      timestamp: number;
+    };
+    routerAddress: string;
+  };
+  requestId: string;
+}
+
+// KyberSwap价格影响API响应类型
+interface KyberSwapPriceImpactResponse {
+  code: number;
+  message: string;
+  data: {
+    amountInUSD: string;
+    amountOutUSD: string;
+    priceImpact: string;
+  };
 }
 
 // 获取1inch价格报价
@@ -352,6 +418,233 @@ const fetchParaSwapQuote = async (
   }
 };
 
+// 获取KyberSwap价格报价
+const fetchKyberSwapQuote = async (
+  apiConfig: ApiConfig,
+  chainId: number,
+  tokenInAddress: string,
+  tokenOutAddress: string,
+  amount: string
+): Promise<PriceQuote | null> => {
+  try {
+    // 构建KyberSwap API请求URL
+    const baseUrl =
+      apiConfig.config.baseUrl || "https://aggregator-api.kyberswap.com";
+    const chainName = getChainNameForKyberSwap(chainId);
+    if (!chainName) {
+      console.error(`KyberSwap does not support chain ID ${chainId}`);
+      return null;
+    }
+
+    // 获取代币的小数位数并调整金额
+    let adjustedAmount = amount;
+   
+    // 确保金额不使用科学计数法表示
+    if (adjustedAmount.includes('e')) {
+      // 处理科学计数法
+      const amountNum = Number(adjustedAmount);
+      adjustedAmount = amountNum.toLocaleString('fullwide', { useGrouping: false });
+      console.log(`转换金额从 ${amount} 到 ${adjustedAmount}`);
+    }
+
+    const url = `${baseUrl}/${chainName}/api/v1/routes?tokenIn=${tokenInAddress}&tokenOut=${tokenOutAddress}&amountIn=${adjustedAmount}&gasInclude=true`;
+
+    console.log(`Fetching KyberSwap quote from: ${url}`);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      apiConfig.config.timeout || 10000
+    );
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        ...(apiConfig.config.apiKey && {
+          Authorization: `Bearer ${apiConfig.config.apiKey}`,
+        }),
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`KyberSwap API error: ${response.status}`);
+    }
+
+    const data: KyberSwapRouteResponse = await response.json();
+
+    if (data.code !== 0 || !data.data?.routeSummary) {
+      throw new Error(
+        `KyberSwap API error: ${data.message || "Invalid response"}`
+      );
+    }
+
+    const routeSummary = data.data.routeSummary;
+
+    // 计算交换价格
+    const amountIn = Number.parseFloat(routeSummary.amountIn);
+    const amountOut = Number.parseFloat(routeSummary.amountOut);
+    const swapPrice = amountOut / amountIn;
+
+    // 获取价格影响数据
+    let priceImpact = 0.01; // 默认值
+    try {
+      const priceImpactData = await fetchKyberSwapPriceImpact(
+        apiConfig,
+        chainId,
+        tokenInAddress,
+        tokenOutAddress,
+        routeSummary.amountIn,
+        routeSummary.amountOut
+      );
+      if (priceImpactData) {
+        priceImpact = Number.parseFloat(priceImpactData.priceImpact) / 100;
+      }
+    } catch (error) {
+      console.warn("Failed to fetch price impact, using default value:", error);
+    }
+
+    // 计算预估gas费用
+    const gasSpent = Number.parseInt(routeSummary.gas, 10);
+
+    // 构建交易路径步骤
+    const routeSteps: RouteStep[] = [];
+
+    if (routeSummary.route && routeSummary.route.length > 0) {
+      // 取第一条路径（通常是最优路径）
+      const bestRoute = routeSummary.route[0];
+
+      bestRoute.forEach((step) => {
+        routeSteps.push({
+          dexName: step.exchange,
+          poolAddress: step.pool,
+          poolFee: step.poolExtra?.priceLimit ? 0.003 : 0, // 默认费率，可根据具体情况调整
+          tokenIn: step.tokenIn,
+          tokenOut: step.tokenOut,
+          amountIn: step.swapAmount,
+          amountOut: step.amountOut,
+        });
+      });
+    }
+
+    // 转换为统一格式
+    const quote: PriceQuote = {
+      status: "success",
+      tokens: [
+        {
+          address: tokenInAddress,
+          symbol: "IN",
+          name: "Input Token",
+          decimals: 18,
+        },
+        {
+          address: tokenOutAddress,
+          symbol: "OUT",
+          name: "Output Token",
+          decimals: 18,
+        },
+      ],
+      tokenFrom: 0,
+      tokenTo: 1,
+      swapPrice,
+      priceImpact,
+      amountIn: routeSummary.amountIn,
+      assumedAmountOut: routeSummary.amountOut,
+      gasSpent,
+      provider: apiConfig.id,
+      route: routeSteps,
+    };
+
+    return quote;
+  } catch (error) {
+    console.error("Error fetching KyberSwap quote:", error);
+    return null;
+  }
+};
+
+// 获取KyberSwap价格影响数据
+const fetchKyberSwapPriceImpact = async (
+  apiConfig: ApiConfig,
+  chainId: number,
+  tokenInAddress: string,
+  tokenOutAddress: string,
+  amountIn: string,
+  amountOut: string,
+  tokenInDecimal = 18,
+  tokenOutDecimal = 18
+): Promise<{
+  amountInUSD: string;
+  amountOutUSD: string;
+  priceImpact: string;
+} | null> => {
+  try {
+    const url = `https://bff.kyberswap.com/api/v1/price-impact?tokenIn=${tokenInAddress}&tokenInDecimal=${tokenInDecimal}&tokenOut=${tokenOutAddress}&tokenOutDecimal=${tokenOutDecimal}&amountIn=${amountIn}&amountOut=${amountOut}&chainId=${chainId}`;
+
+    console.log(`Fetching KyberSwap price impact from: ${url}`);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      apiConfig.config.timeout || 10000
+    );
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`KyberSwap price impact API error: ${response.status}`);
+    }
+
+    const data: KyberSwapPriceImpactResponse = await response.json();
+
+    if (data.code !== 0 || !data.data) {
+      throw new Error(
+        `KyberSwap price impact API error: ${
+          data.message || "Invalid response"
+        }`
+      );
+    }
+
+    return data.data;
+  } catch (error) {
+    console.error("Error fetching KyberSwap price impact:", error);
+    return null;
+  }
+};
+
+// 获取KyberSwap支持的链名称
+const getChainNameForKyberSwap = (chainId: number): string | null => {
+  const chainMap: Record<number, string> = {
+    1: "ethereum", // Ethereum
+    137: "polygon", // Polygon
+    56: "bsc", // Binance Smart Chain
+    43114: "avalanche", // Avalanche
+    42161: "arbitrum", // Arbitrum
+    10: "optimism", // Optimism
+    8453: "base", // Base
+    324: "zksync", // ZKSync
+    1101: "polygon-zkevm", // Polygon zkEVM
+    59144: "linea", // Linea
+    42170: "arbitrum-nova", // Arbitrum Nova
+    534352: "scroll", // Scroll
+    1116: "core", // Core
+    250: "fantom", // Fantom
+    5000: "mantle", // Mantle
+  };
+
+  return chainMap[chainId] || null;
+};
+
 // 根据API配置获取价格报价
 const fetchQuoteByProvider = async (
   apiConfig: ApiConfig,
@@ -389,6 +682,14 @@ const fetchQuoteByProvider = async (
       );
     case "paraswap":
       return fetchParaSwapQuote(
+        apiConfig,
+        chainId,
+        tokenInAddress,
+        tokenOutAddress,
+        amount
+      );
+    case "kyberswap":
+      return fetchKyberSwapQuote(
         apiConfig,
         chainId,
         tokenInAddress,
@@ -433,8 +734,14 @@ export const fetchPriceQuoteFromProvider = async (
       return null;
     }
 
-    const amountInWei = convertToWei(Number.parseFloat(amount), 18);
-    return await fetchQuoteByProvider(
+    // 获取代币的小数位数
+    const tokenDecimals = await getTokenDecimals(chainId, tokenInAddress);
+    console.log(`Using ${tokenDecimals} decimals for token ${tokenInSymbol} (${tokenInAddress})`);
+    
+    // 根据代币的实际小数位数转换金额
+    const amountInWei = await convertToWeiWithDecimals(Number.parseFloat(amount), chainId, tokenInAddress);
+    
+    const quote = await fetchQuoteByProvider(
       apiConfig,
       chainId,
       tokenInAddress,
@@ -442,6 +749,22 @@ export const fetchPriceQuoteFromProvider = async (
       amountInWei,
       slippage
     );
+    
+    // 如果成功获取报价，将输出金额转换回小数格式
+    if (quote) {
+      // 获取输出代币的小数位数
+      const outputTokenDecimals = await getTokenDecimals(chainId, tokenOutAddress);
+      
+      // 转换输出金额
+      const decimalAmountOut = convertWeiToDecimal(quote.assumedAmountOut, outputTokenDecimals);
+      
+      console.log(`转换输出金额从 ${quote.assumedAmountOut} 到 ${decimalAmountOut}`);
+      
+      // 更新报价对象中的输出金额
+      quote.assumedAmountOut = decimalAmountOut;
+    }
+    
+    return quote;
   } catch (error) {
     console.error("Error fetching price quote from provider:", error);
     return null;
@@ -467,7 +790,8 @@ export const fetchBestPriceQuote = async (
       return null;
     }
 
-    const amountInWei = convertToWei(Number.parseFloat(amount), 18);
+    // 获取代币的小数位数并转换金额
+    const amountInWei = await convertToWeiWithDecimals(Number.parseFloat(amount), chainId, tokenInAddress);
     const availableConfigs = getApiConfigsForChain(chainId);
 
     if (availableConfigs.length === 0) {
@@ -493,6 +817,16 @@ export const fetchBestPriceQuote = async (
         console.log(
           `Using preferred provider ${preferredProviderId}: ${quote.swapPrice}`
         );
+        
+        // 将输出金额转换回小数格式
+        const outputTokenDecimals = await getTokenDecimals(chainId, tokenOutAddress);
+        const decimalAmountOut = convertWeiToDecimal(quote.assumedAmountOut, outputTokenDecimals);
+        
+        console.log(`转换输出金额从 ${quote.assumedAmountOut} 到 ${decimalAmountOut}`);
+        
+        // 更新报价对象中的输出金额
+        quote.assumedAmountOut = decimalAmountOut;
+        
         return quote;
       }
       console.warn(
@@ -503,29 +837,6 @@ export const fetchBestPriceQuote = async (
 
     // 如果没有找到首选配置，返回null
     return null;
-
-    // // 并行获取多个API的报价
-    // const promises = availableConfigs.map((config) =>
-    //   fetchQuoteByProvider(config, chainId, tokenInAddress, tokenOutAddress, amountInWei, slippage).catch(() => null),
-    // )
-
-    // const results = await Promise.all(promises)
-    // const validQuotes = results.filter((quote): quote is PriceQuote => quote !== null)
-
-    // if (validQuotes.length === 0) {
-    //   throw new Error("No valid quotes received from any API")
-    // }
-
-    // // 选择最佳报价（最高输出金额）
-    // const bestQuote = validQuotes.reduce((best, current) => {
-    //   const bestOutput = Number.parseFloat(best.assumedAmountOut)
-    //   const currentOutput = Number.parseFloat(current.assumedAmountOut)
-    //   return currentOutput > bestOutput ? current : best
-    // })
-
-    // console.log(`Best quote from ${bestQuote.provider}: ${bestQuote.swapPrice}`)
-
-    // return bestQuote
   } catch (error) {
     console.error("Error fetching best price quote:", error);
     return null;
@@ -566,7 +877,8 @@ export const fetchMultiDexPrices = async (
       return [];
     }
 
-    const amountInWei = convertToWei(Number.parseFloat(amount), 18);
+    // 获取代币的小数位数并转换金额
+    const amountInWei = await convertToWeiWithDecimals(Number.parseFloat(amount), chainId, tokenInAddress);
     const availableConfigs = getApiConfigsForChain(chainId);
 
     const results = await Promise.all(
@@ -578,6 +890,21 @@ export const fetchMultiDexPrices = async (
           tokenOutAddress,
           amountInWei
         ).catch(() => null);
+        
+        // 如果成功获取报价，将输出金额转换回小数格式
+        if (quote) {
+          // 获取输出代币的小数位数
+          const outputTokenDecimals = await getTokenDecimals(chainId, tokenOutAddress);
+          
+          // 转换输出金额
+          const decimalAmountOut = convertWeiToDecimal(quote.assumedAmountOut, outputTokenDecimals);
+          
+          console.log(`${config.name}: 转换输出金额从 ${quote.assumedAmountOut} 到 ${decimalAmountOut}`);
+          
+          // 更新报价对象中的输出金额
+          quote.assumedAmountOut = decimalAmountOut;
+        }
+        
         return {
           dex: config.name,
           price: quote?.swapPrice || 0,
@@ -595,7 +922,8 @@ export const fetchMultiDexPrices = async (
 
 // 安全地将浮点数转换为Wei（避免BigInt精度问题）
 function convertToWei(amount: number, decimals: number): string {
-  let amountStr = amount.toString();
+  // 确保使用完整表示而不是科学计数法
+  let amountStr = amount.toLocaleString('fullwide', { useGrouping: false });
 
   const decimalPos = amountStr.indexOf(".");
 
@@ -624,6 +952,54 @@ function convertToWei(amount: number, decimals: number): string {
   }
 
   return amountStr;
+}
+
+// 根据代币地址和链ID获取代币小数位数并转换为wei
+async function convertToWeiWithDecimals(amount: number, chainId: number, tokenAddress: string): Promise<string> {
+  try {
+    // 获取代币的实际小数位数
+    const decimals = await getTokenDecimals(chainId, tokenAddress);
+    console.log(`Converting amount ${amount} to wei with ${decimals} decimals for token ${tokenAddress}`);
+    return convertToWei(amount, decimals);
+  } catch (error) {
+    console.warn(`无法获取代币小数位，使用默认18位: ${error}`);
+    return convertToWei(amount, 18);
+  }
+}
+
+// 将Wei格式转换回小数格式
+function convertWeiToDecimal(weiAmount: string, decimals: number): string {
+  // 确保使用完整表示而不是科学计数法
+  const amountStr = weiAmount.replace(/^0+/, "") || "0";
+  
+  // 如果小数位数为0，直接返回
+  if (decimals === 0) return amountStr;
+  
+  // 处理金额字符串
+  if (amountStr.length <= decimals) {
+    // 如果长度小于等于小数位数，需要在前面补0
+    const zerosToAdd = decimals - amountStr.length;
+    return "0." + "0".repeat(zerosToAdd) + amountStr.replace(/0+$/, "");
+  } else {
+    // 在适当位置插入小数点
+    const decimalPosition = amountStr.length - decimals;
+    const integerPart = amountStr.substring(0, decimalPosition);
+    const fractionalPart = amountStr.substring(decimalPosition).replace(/0+$/, "");
+    return fractionalPart ? `${integerPart}.${fractionalPart}` : integerPart;
+  }
+}
+
+// 根据代币地址和链ID获取代币小数位数并转换回小数格式
+async function convertWeiToDecimalWithDecimals(weiAmount: string, chainId: number, tokenAddress: string): Promise<string> {
+  try {
+    // 获取代币的实际小数位数
+    const decimals = await getTokenDecimals(chainId, tokenAddress);
+    console.log(`Converting wei amount ${weiAmount} back to decimal with ${decimals} decimals for token ${tokenAddress}`);
+    return convertWeiToDecimal(weiAmount, decimals);
+  } catch (error) {
+    console.warn(`无法获取代币小数位，使用默认18位: ${error}`);
+    return convertWeiToDecimal(weiAmount, 18);
+  }
 }
 
 // 修改executeArbitrageQuery函数以支持指定API提供商
@@ -655,51 +1031,126 @@ export const executeArbitrageQuery = async (
   targetApiProvider?: string;
 }> => {
   try {
+    // 内部函数：直接获取价格报价，避免重复转换wei
+    const getPriceQuoteDirect = async (
+      chainName: string,
+      tokenInSymbol: string,
+      tokenOutSymbol: string,
+      amount: string,
+      isSourceChain: boolean
+    ): Promise<PriceQuote> => {
+      const chainId = getChainId(chainName);
+      const tokenInAddress = getTokenAddress(chainName, tokenInSymbol);
+      const tokenOutAddress = getTokenAddress(chainName, tokenOutSymbol);
+
+      if (!chainId || !tokenInAddress || !tokenOutAddress) {
+        throw new Error(`无效的链或代币配置: ${chainName}, ${tokenInSymbol}, ${tokenOutSymbol}`);
+      }
+
+      // 只在源链交易时转换为wei格式，目标链交易使用原始输出金额
+      let amountToUse = amount;
+      if (isSourceChain) {
+        // 获取代币的小数位数并转换金额
+        const amountInWei = await convertToWeiWithDecimals(Number.parseFloat(amount), chainId, tokenInAddress);
+        amountToUse = amountInWei;
+      }
+
+      console.log(`${isSourceChain ? '源链' : '目标链'}交易金额: ${amountToUse}`);
+
+      const availableConfigs = getApiConfigsForChain(chainId);
+      if (availableConfigs.length === 0) {
+        throw new Error(`没有可用的API提供商: ${chainName}`);
+      }
+
+      // 使用指定的API提供商
+      let apiConfig = availableConfigs[0];
+      if (preferredApiProvider) {
+        const preferred = availableConfigs.find(c => c.id === preferredApiProvider);
+        if (preferred) {
+          apiConfig = preferred;
+        }
+      }
+
+      const quote = await fetchQuoteByProvider(
+        apiConfig,
+        chainId,
+        tokenInAddress,
+        tokenOutAddress,
+        amountToUse,
+        slippage
+      );
+
+      if (!quote) {
+        throw new Error(`无法获取价格报价: ${chainName}, ${tokenInSymbol} -> ${tokenOutSymbol}`);
+      }
+
+      return quote;
+    };
+
     // 1. 源链交易: sourceToken -> targetToken
-    const sourceQuote = await fetchBestPriceQuote(
+    const sourceQuote = await getPriceQuoteDirect(
       sourceChain,
       sourceToken,
       targetToken,
       initialAmount,
-      slippage,
-      preferredApiProvider
+      true // 是源链交易
     );
 
-    if (!sourceQuote) {
-      throw new Error("Failed to fetch source chain price quote");
+    const sourceOutputAmount = sourceQuote.assumedAmountOut;
+    console.log(`源链输出金额: ${sourceOutputAmount} ${targetToken}`);
+
+    // 确保sourceOutputAmount不使用科学计数法表示
+    let adjustedSourceOutputAmount = sourceOutputAmount;
+    if (sourceOutputAmount.includes('e')) {
+      const outputNum = Number(sourceOutputAmount);
+      adjustedSourceOutputAmount = outputNum.toLocaleString('fullwide', { useGrouping: false });
+      console.log(`转换输出金额从 ${sourceOutputAmount} 到 ${adjustedSourceOutputAmount}`);
     }
 
-    const sourceOutputAmount = (
-      Number.parseFloat(initialAmount) * sourceQuote.swapPrice
-    ).toString();
-
-    console.log(`Source chain output: ${JSON.stringify(sourceQuote)} `);
-    console.log(`Source chain output: ${sourceOutputAmount} ${targetToken}`);
-
     // 2. 目标链交易: targetToken -> sourceToken
-    const targetQuote = await fetchBestPriceQuote(
+    const targetQuote = await getPriceQuoteDirect(
       targetChain,
       targetToken,
       sourceToken,
-      sourceOutputAmount,
-      slippage,
-      preferredApiProvider
+      adjustedSourceOutputAmount,
+      false // 不是源链交易，不需要再次转换为wei
     );
-    console.log(`targetQuote chain output: ${JSON.stringify(targetQuote)} `);
-    if (!targetQuote) {
-      throw new Error("Failed to fetch target chain price quote");
+
+    console.log(`目标链交易结果: ${JSON.stringify(targetQuote.assumedAmountOut)}`);
+
+    const finalOutputAmount = targetQuote.assumedAmountOut;
+    console.log(`目标链输出金额: ${finalOutputAmount} ${sourceToken}`);
+
+    // 获取链ID和代币地址
+    const sourceChainId = getChainId(sourceChain);
+    const targetChainId = getChainId(targetChain);
+    const sourceTokenAddress = getTokenAddress(sourceChain, sourceToken);
+    const targetTokenAddress = getTokenAddress(targetChain, targetToken);
+    
+    if (!sourceChainId || !targetChainId || !sourceTokenAddress || !targetTokenAddress) {
+      throw new Error("无效的链或代币配置");
     }
 
-    const finalOutputAmount = (
-      Number.parseFloat(sourceOutputAmount) * targetQuote.swapPrice
-    ).toString();
-    console.log(`Target chain output: ${finalOutputAmount} ${sourceToken}`);
+    // 将wei格式的金额转换回小数格式
+    const decimalSourceOutputAmount = await convertWeiToDecimalWithDecimals(
+      sourceOutputAmount,
+      targetChainId,
+      targetTokenAddress
+    );
+    
+    const decimalFinalOutputAmount = await convertWeiToDecimalWithDecimals(
+      finalOutputAmount,
+      sourceChainId,
+      sourceTokenAddress
+    );
+    
+    console.log(`转换后的源链输出金额: ${decimalSourceOutputAmount} ${targetToken}`);
+    console.log(`转换后的最终输出金额: ${decimalFinalOutputAmount} ${sourceToken}`);
 
-    // 计算利润百分比
+    // 使用转换后的小数金额计算利润
     const initialAmountNum = Number.parseFloat(initialAmount);
-    const finalAmountNum = Number.parseFloat(finalOutputAmount);
-    const profitPercentage =
-      ((finalAmountNum - initialAmountNum) / initialAmountNum) * 100;
+    const finalAmountNum = Number.parseFloat(decimalFinalOutputAmount);
+    const profitPercentage = ((finalAmountNum - initialAmountNum) / initialAmountNum) * 100;
 
     // 计算具体利润金额
     const profitAmount = (finalAmountNum - initialAmountNum).toFixed(6);
@@ -723,19 +1174,19 @@ export const executeArbitrageQuery = async (
     return {
       sourcePrice: sourceQuote.swapPrice,
       targetPrice: targetQuote.swapPrice,
-      sourceOutputAmount,
-      finalOutputAmount,
+      sourceOutputAmount: decimalSourceOutputAmount, // 返回小数格式
+      finalOutputAmount: decimalFinalOutputAmount, // 返回小数格式
       profitPercentage,
-      profitAmount, // 具体利润金额
-      netProfitAmount, // 净利润
-      netProfitPercentage, // 净利润百分比
+      profitAmount,
+      netProfitAmount,
+      netProfitPercentage,
       sourceRoute: sourceQuote.route,
       targetRoute: targetQuote.route,
       sourceApiProvider: sourceQuote.provider,
       targetApiProvider: targetQuote.provider,
     };
   } catch (error) {
-    console.error("Error executing arbitrage query:", error);
+    console.error("执行套利查询时出错:", error);
     throw error;
   }
 };
@@ -747,10 +1198,18 @@ export const calculateProfitPercentage = (
   gasFee: string,
   networkFee: string
 ): number => {
-  const initialAmountNum = Number.parseFloat(initialAmount);
-  const finalAmountNum = Number.parseFloat(finalAmount);
-  const gasFeeBN = Number.parseFloat(gasFee);
-  const networkFeeBN = Number.parseFloat(networkFee);
+  // 确保金额是小数格式，处理可能的科学计数法
+  const parseAmount = (amount: string): number => {
+    if (amount.includes('e')) {
+      return Number(amount);
+    }
+    return Number.parseFloat(amount);
+  };
+
+  const initialAmountNum = parseAmount(initialAmount);
+  const finalAmountNum = parseAmount(finalAmount);
+  const gasFeeBN = parseAmount(gasFee);
+  const networkFeeBN = parseAmount(networkFee);
 
   const totalFees = gasFeeBN + networkFeeBN;
   const netProfit = finalAmountNum - initialAmountNum - totalFees;
@@ -807,6 +1266,13 @@ export const executeArbitrageTrade = async (
   targetPrice: number,
   profitPercentage: number
 ): Promise<TradeExecution> => {
+  // 确保金额是小数格式
+  let decimalAmount = amount;
+  if (amount.includes('e')) {
+    const amountNum = Number(amount);
+    decimalAmount = amountNum.toString();
+  }
+
   const execution: TradeExecution = {
     id: crypto.randomUUID(),
     strategyId,
@@ -815,11 +1281,11 @@ export const executeArbitrageTrade = async (
     targetChain,
     sourceToken,
     targetToken,
-    amount,
+    amount: decimalAmount,
     sourcePrice,
     targetPrice,
     profitAmount: (
-      (Number.parseFloat(amount) * profitPercentage) /
+      (Number.parseFloat(decimalAmount) * profitPercentage) /
       100
     ).toFixed(4),
     profitPercentage,
@@ -852,4 +1318,96 @@ export const executeArbitrageTrade = async (
       }
     }, 3000);
   });
+};
+
+// 通用函数：获取代币小数位数
+export const getTokenDecimals = async (
+  chainId: number,
+  tokenAddress: string
+): Promise<number> => {
+  // 原生代币(ETH, BNB等)通常是18位小数
+  if (
+    tokenAddress.toLowerCase() === "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  ) {
+    return 18;
+  }
+
+  // USDC, USDT通常是6位小数
+  if (
+    tokenAddress.toLowerCase() ===
+      "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" || // USDC on Ethereum
+    tokenAddress.toLowerCase() ===
+      "0xdac17f958d2ee523a2206206994597c13d831ec7" || // USDT on Ethereum
+    tokenAddress.toLowerCase() === "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" // USDC on Base
+  ) {
+    return 6;
+  }
+
+  // 其他常见代币
+  const commonDecimals: Record<string, number> = {
+    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": 18, // WETH on Ethereum
+    "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599": 8, // WBTC on Ethereum
+    "0x4200000000000000000000000000000000000006": 18, // WETH on Base
+  };
+
+  if (commonDecimals[tokenAddress.toLowerCase()]) {
+    return commonDecimals[tokenAddress.toLowerCase()];
+  }
+
+  // 检查缓存
+  const cacheKey = `${chainId}:${tokenAddress.toLowerCase()}`;
+  if (tokenDecimalsCache[cacheKey] !== undefined) {
+    console.log(`Using cached decimals for token ${tokenAddress}: ${tokenDecimalsCache[cacheKey]}`);
+    return tokenDecimalsCache[cacheKey];
+  }
+
+  // 从配置中获取代币信息
+  try {
+    // 尝试从KyberSwap缓存中获取代币信息
+    const token = getCachedTokenByAddress(chainId, tokenAddress);
+    if (token) {
+      // 存入缓存
+      tokenDecimalsCache[cacheKey] = token.decimals;
+      console.log(`从KyberSwap缓存获取到代币小数位数: ${token.decimals}`);
+      return token.decimals;
+    }
+  } catch (error) {
+    console.warn(`无法从配置获取代币小数位: ${error}`);
+  }
+
+  // 默认返回18，大多数ERC20代币都是18位小数
+  console.warn(`无法获取代币 ${tokenAddress} 在链 ${chainId} 的小数位数，使用默认值18`);
+  return 18;
+};
+
+// 从区块链获取代币小数位数
+export const fetchTokenDecimals = async (
+  chainId: number,
+  tokenAddress: string
+): Promise<number | null> => {
+  // 此函数不再使用RPC URL查询，直接从配置获取
+  try {
+    // 检查缓存
+    const cacheKey = `${chainId}:${tokenAddress.toLowerCase()}`;
+    if (tokenDecimalsCache[cacheKey] !== undefined) {
+      console.log(`Using cached decimals for token ${tokenAddress}: ${tokenDecimalsCache[cacheKey]}`);
+      return tokenDecimalsCache[cacheKey];
+    }
+    
+    // 尝试从KyberSwap缓存中获取代币信息
+    const token = getCachedTokenByAddress(chainId, tokenAddress);
+    if (token) {
+      // 存入缓存
+      const result = token.decimals;
+      tokenDecimalsCache[cacheKey] = result;
+      console.log(`从KyberSwap缓存获取到代币小数位数: ${result}`);
+      return result;
+    }
+    
+    console.warn(`无法获取代币 ${tokenAddress} 在链 ${chainId} 的小数位数`);
+    return null;
+  } catch (error) {
+    console.error(`Error fetching token decimals for ${tokenAddress} on chain ${chainId}:`, error);
+    return null;
+  }
 };

@@ -35,7 +35,7 @@ export function TradeExecutionDialog({
   targetPrice,
   profitPercentage,
 }: TradeExecutionDialogProps) {
-  const [amount, setAmount] = useState(strategy.initialAmount)
+  const [amount, setAmount] = useState(strategy.amount)
   const [isExecuting, setIsExecuting] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [arbitrageDetails, setArbitrageDetails] = useState<{
@@ -48,7 +48,7 @@ export function TradeExecutionDialog({
   // 修改交易执行对话框以支持新的策略配置
   useEffect(() => {
     if (open) {
-      setAmount(strategy.initialAmount)
+      setAmount(strategy.amount)
       setIsExecuting(false)
       setIsLoading(true)
 
@@ -58,8 +58,8 @@ export function TradeExecutionDialog({
         strategy.targetChain,
         strategy.sourceToken,
         strategy.targetToken,
-        strategy.initialAmount,
-        strategy.slippage,
+        strategy.amount,
+        strategy.slippage || "0.005", // 使用默认值
         strategy.preferredApiProvider,
         strategy.fallbackApiProviders,
         strategy.gasFee,
@@ -90,7 +90,7 @@ export function TradeExecutionDialog({
 
   // 当金额变化时更新套利详情
   useEffect(() => {
-    if (open && amount !== strategy.initialAmount) {
+    if (open && amount !== strategy.amount) {
       setIsLoading(true)
 
       executeArbitrageQuery(
@@ -99,7 +99,7 @@ export function TradeExecutionDialog({
         strategy.sourceToken,
         strategy.targetToken,
         amount,
-        strategy.slippage,
+        strategy.slippage || "0.005", // 使用默认值
         strategy.preferredApiProvider,
         strategy.fallbackApiProviders,
         strategy.gasFee,
@@ -166,29 +166,33 @@ export function TradeExecutionDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(value) => !isExecuting && onOpenChange(value)}>
-      <DialogContent className="sm:max-w-[700px]">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>执行套利交易</DialogTitle>
-          <DialogDescription>执行 {strategy.name} 策略的套利交易</DialogDescription>
+          <DialogDescription>
+            确认交易详情并调整金额，然后点击执行
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
+        <div className="grid gap-4 py-4">
           <div className="space-y-2">
             <Label htmlFor="amount">交易金额</Label>
             <Input
               id="amount"
               type="number"
               step="0.01"
-              min="0"
+              min="0.01"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               disabled={isExecuting || isLoading}
             />
           </div>
 
+          <div className="mt-4 space-y-4">
+            <h3 className="text-sm font-medium">套利详情</h3>
           {isLoading ? (
-            <div className="flex justify-center py-8">
+              <div className="flex justify-center items-center h-[150px]">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           ) : arbitrageDetails ? (
@@ -197,7 +201,7 @@ export function TradeExecutionDialog({
               targetChain={strategy.targetChain}
               sourceToken={strategy.sourceToken}
               targetToken={strategy.targetToken}
-              initialAmount={amount}
+                amount={amount}
               sourceOutputAmount={arbitrageDetails.sourceOutputAmount}
               finalOutputAmount={arbitrageDetails.finalOutputAmount}
               profitPercentage={arbitrageDetails.updatedProfitPercentage}
@@ -236,18 +240,22 @@ export function TradeExecutionDialog({
               </div>
             </div>
           )}
+          </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isExecuting}>
             取消
           </Button>
-          <Button
-            onClick={handleExecuteTrade}
-            disabled={isExecuting || isLoading || (arbitrageDetails && arbitrageDetails.updatedProfitPercentage <= 0)}
-          >
-            {isExecuting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isExecuting ? "执行中..." : "执行交易"}
+          <Button onClick={handleExecuteTrade} disabled={isExecuting || isLoading}>
+            {isExecuting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                执行中...
+              </>
+            ) : (
+              "执行交易"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

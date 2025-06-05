@@ -46,11 +46,18 @@ export const updateStrategy = (updatedStrategy: Strategy): void => {
   const index = strategies.findIndex((s) => s.id === updatedStrategy.id);
 
   if (index !== -1) {
+    // 确保保留所有字段，特别是amount字段
     strategies[index] = {
       ...updatedStrategy,
       updatedAt: Date.now(),
-    };
+    } as Strategy;
+    
+    console.log("更新策略:", updatedStrategy.id);
+    console.log("更新后的金额:", strategies[index].amount);
+    
     saveStrategies(strategies);
+  } else {
+    console.error("未找到要更新的策略:", updatedStrategy.id);
   }
 };
 
@@ -69,16 +76,16 @@ export const getStrategyById = (id: string): Strategy | null => {
 };
 
 // 更新策略活动状态
-export const updateStrategyStatus = (id: string, isActive: boolean): void => {
+export const updateStrategyStatus = (id: string, enabled: boolean): void => {
   const strategies = getStrategies();
   const index = strategies.findIndex((s) => s.id === id);
 
   if (index !== -1) {
     strategies[index] = {
       ...strategies[index],
-      isActive,
+      enabled,
       updatedAt: Date.now(),
-    };
+    } as Strategy;
     saveStrategies(strategies);
   }
 };
@@ -93,13 +100,17 @@ export const updateStrategyAutoTrade = (
   const index = strategies.findIndex((s) => s.id === id);
 
   if (index !== -1) {
+    // 确保minProfitPercentage是数字类型
+    const profit = minProfitPercentage 
+      ? parseFloat(minProfitPercentage) 
+      : strategies[index].minProfitPercentage || 1.0;
+    
     strategies[index] = {
       ...strategies[index],
       autoTrade,
-      minProfitPercentage:
-        minProfitPercentage || strategies[index].minProfitPercentage || "1.0",
+      minProfitPercentage: profit,
       updatedAt: Date.now(),
-    };
+    } as Strategy;
     saveStrategies(strategies);
   }
 };
@@ -230,9 +241,15 @@ export const duplicateStrategy = (id: string): Strategy | null => {
     ...strategy,
     id: crypto.randomUUID(),
     name: `${strategy.name} (复制)`,
-    isActive: false,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    enabled: false,
+    description: strategy.description,
+    sourceChain: strategy.sourceChain,
+    targetChain: strategy.targetChain,
+    sourceToken: strategy.sourceToken,
+    targetToken: strategy.targetToken,
+    amount: strategy.amount,
+    minProfitPercentage: strategy.minProfitPercentage,
+    interval: strategy.interval || 60000
   };
 
   addStrategy(newStrategy);
@@ -269,16 +286,16 @@ export const importStrategies = (
         s.sourceToken &&
         s.targetChain &&
         s.targetToken &&
-        s.initialAmount
+        s.amount
     );
 
     // 为每个导入的策略生成新ID
     const strategiesToImport = validStrategies.map((s) => ({
       ...s,
       id: crypto.randomUUID(),
-      isActive: false,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      enabled: false,
+      interval: s.interval || 60000,
+      minProfitPercentage: s.minProfitPercentage || 1.0
     }));
 
     // 获取现有策略

@@ -11,7 +11,15 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
-import { getChainNames, getTokensForChain } from "@/lib/config"
+import { 
+  getChainNames, 
+  getTokensForChain, 
+  fetchKyberSwapChains, 
+  KyberSwapChain, 
+  getCachedTokensForChain,
+  getCachedTokenBySymbol,
+  forceRefreshKyberSwapCache
+} from "@/lib/config"
 import { executeArbitrageQuery } from "@/lib/api"
 import { getApiProviderOptions } from "@/lib/api-config"
 import { Loader2, RefreshCw, Save, Zap, Globe, Key, Settings2 } from "lucide-react"
@@ -19,7 +27,7 @@ import { ArbitrageFlowDiagram } from "@/components/arbitrage-flow-diagram"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { addStrategy } from "@/lib/storage"
-import type { Strategy } from "@/lib/types"
+import type { Strategy, TokenDetail } from "@/lib/types"
 import { Checkbox } from "@/components/ui/checkbox"
 
 export default function ConfigureStrategyPage() {
@@ -33,6 +41,12 @@ export default function ConfigureStrategyPage() {
   )
   const [isInitialized, setIsInitialized] = useState(false)
 
+  // KyberSwap链和代币状态
+  const [kyberChains, setKyberChains] = useState<KyberSwapChain[]>([])
+  const [cachedTokens, setCachedTokens] = useState<Record<string, TokenDetail[]>>({})
+  const [useKyberData, setUseKyberData] = useState(true)
+  const [loadingKyberData, setLoadingKyberData] = useState(false)
+
   // 表单状态
   const [formData, setFormData] = useState({
     name: "新套利策略",
@@ -42,7 +56,7 @@ export default function ConfigureStrategyPage() {
     targetChain: "",
     targetToken: "",
     targetSourceToken: "",
-    initialAmount: "1",
+    amount: "1",
     slippage: "0.005",
     gasFee: "0.01",
     networkFee: "0.005",
@@ -113,13 +127,196 @@ export default function ConfigureStrategyPage() {
     }
   }, [isInitialized])
 
+  // 加载KyberSwap数据
+  const loadKyberSwapData = useCallback(async () => {
+    try {
+      setLoadingKyberData(true);
+      
+      // 获取KyberSwap支持的链
+      const chains = await fetchKyberSwapChains();
+      setKyberChains(chains);
+      
+      // 加载缓存的代币数据
+      const tokenCache: Record<string, TokenDetail[]> = {};
+      
+      // 只加载前5个链的代币数据，避免一次加载过多
+      for (let i = 0; i < Math.min(5, chains.length); i++) {
+        const chain = chains[i];
+        const chainId = chain.chainId;
+        const tokens = getCachedTokensForChain(chainId);
+        if (tokens.length > 0) {
+          tokenCache[chainId] = tokens;
+        }
+      }
+      
+      setCachedTokens(tokenCache);
+      
+      // 如果有KyberSwap链数据，更新默认选择
+      if (chains.length > 0) {
+        const defaultChain = chains[0];
+        const chainName = defaultChain.displayName.toUpperCase().replace(/\s+/g, '_');
+        
+        // 更新链名称列表
+        const kyberChainNames = chains.map(chain => 
+          chain.displayName.toUpperCase().replace(/\s+/g, '_')
+        );
+        
+        if (useKyberData) {
+          setChainNames(kyberChainNames);
+          
+          // 更新表单默认值
+          if (tokenCache[defaultChain.chainId]?.length > 0) {
+            const defaultTokens = tokenCache[defaultChain.chainId];
+            setFormData(prev => ({
+              ...prev,
+              sourceChain: chainName,
+              sourceToken: defaultTokens[0]?.symbol || "",
+              sourceTargetToken: defaultTokens.length > 1 ? defaultTokens[1].symbol : defaultTokens[0].symbol,
+            }));
+          }
+        }
+      }
+      
+      toast({
+        title: "KyberSwap数据加载完成",
+        description: `已加载 ${chains.length} 个网络的数据`,
+      });
+    } catch (error) {
+      console.error("加载KyberSwap数据失败:", error);
+      toast({
+        title: "加载失败",
+        description: "无法加载KyberSwap数据，将使用本地配置",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingKyberData(false);
+    }
+  }, [toast, useKyberData]);
+
+  // 强制刷新KyberSwap缓存
+  const refreshKyberSwapCache = async () => {
+    try {
+      setLoadingKyberData(true);
+      toast({
+        title: "正在刷新KyberSwap缓存",
+        description: "这可能需要几分钟时间...",
+      });
+      
+      // 导入forceRefreshKyberSwapCache函数
+      const { forceRefreshKyberSwapCache } = await import("@/lib/config");
+      
+      // 刷新缓存
+      const success = await forceRefreshKyberSwapCache();
+      
+      if (success) {
+        toast({
+          title: "KyberSwap缓存刷新成功",
+          description: "请重新加载KyberSwap数据",
+        });
+        
+        // 重新加载数据
+        await loadKyberSwapData();
+      } else {
+        toast({
+          title: "缓存刷新失败",
+          description: "请稍后再试",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("刷新KyberSwap缓存失败:", error);
+      toast({
+        title: "刷新失败",
+        description: "无法刷新KyberSwap缓存",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingKyberData(false);
+    }
+  };
+
+  // 加载指定链的代币数据
+  const loadChainTokens = async (chainId: string) => {
+    try {
+      if (cachedTokens[chainId]?.length > 0) {
+        // 已经加载过此链的代币数据
+        return;
+      }
+      
+      setLoadingKyberData(true);
+      
+      // 获取代币数据
+      const tokens = await getCachedTokensForChain(chainId);
+      
+      if (tokens.length > 0) {
+        // 更新缓存
+        setCachedTokens(prev => ({
+          ...prev,
+          [chainId]: tokens
+        }));
+        
+        toast({
+          title: "代币数据已加载",
+          description: `已加载 ${tokens.length} 个代币数据`,
+        });
+      } else {
+        toast({
+          title: "无代币数据",
+          description: "未找到该链的缓存代币数据",
+        });
+      }
+    } catch (error) {
+      console.error("加载链代币数据失败:", error);
+      toast({
+        title: "加载失败",
+        description: "无法加载代币数据",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingKyberData(false);
+    }
+  };
+
   // 初始化链和代币选择
   useEffect(() => {
     initializeChains()
-  }, [initializeChains])
+    
+    // 如果选择使用KyberSwap数据，则加载
+    if (useKyberData) {
+      loadKyberSwapData();
+    }
+  }, [initializeChains, loadKyberSwapData, useKyberData])
 
   // 当源链变化时更新源代币列表
   const handleSourceChainChange = (value: string) => {
+    if (useKyberData) {
+      // 查找对应的KyberSwap链
+      const kyberChain = kyberChains.find(
+        chain => chain.displayName.toUpperCase().replace(/\s+/g, '_') === value
+      );
+      
+      if (kyberChain) {
+        const chainId = kyberChain.chainId;
+        const chainTokens = cachedTokens[chainId] || [];
+        
+        if (chainTokens.length > 0) {
+          // 使用KyberSwap代币数据
+          const tokenSymbols = chainTokens.map(token => token.symbol);
+          setSourceTokens(tokenSymbols);
+          setSourceTargetTokens(tokenSymbols);
+          
+          setFormData((prev) => ({
+            ...prev,
+            sourceChain: value,
+            sourceToken: tokenSymbols.length > 0 ? tokenSymbols[0] : "",
+            sourceTargetToken: tokenSymbols.length > 1 ? tokenSymbols[1] : tokenSymbols[0],
+          }));
+          return;
+        }
+      }
+    }
+    
+    // 回退到原始处理方式
     const tokens = getTokensForChain(value)
     setSourceTokens(tokens)
     setSourceTargetTokens(tokens)
@@ -134,6 +331,34 @@ export default function ConfigureStrategyPage() {
 
   // 当目标链变化时更新目标代币列表
   const handleTargetChainChange = (value: string) => {
+    if (useKyberData) {
+      // 查找对应的KyberSwap链
+      const kyberChain = kyberChains.find(
+        chain => chain.displayName.toUpperCase().replace(/\s+/g, '_') === value
+      );
+      
+      if (kyberChain) {
+        const chainId = kyberChain.chainId;
+        const chainTokens = cachedTokens[chainId] || [];
+        
+        if (chainTokens.length > 0) {
+          // 使用KyberSwap代币数据
+          const tokenSymbols = chainTokens.map(token => token.symbol);
+          setTargetTokens(tokenSymbols);
+          setTargetSourceTokens(tokenSymbols);
+          
+          setFormData((prev) => ({
+            ...prev,
+            targetChain: value,
+            targetToken: tokenSymbols.length > 0 ? tokenSymbols[0] : "",
+            targetSourceToken: tokenSymbols.length > 1 ? tokenSymbols[1] : tokenSymbols[0],
+          }));
+          return;
+        }
+      }
+    }
+    
+    // 回退到原始处理方式
     const tokens = getTokensForChain(value)
     setTargetTokens(tokens)
     setTargetSourceTokens(tokens)
@@ -181,7 +406,7 @@ export default function ConfigureStrategyPage() {
       !formData.targetChain ||
       !formData.targetToken ||
       !formData.targetSourceToken ||
-      !formData.initialAmount
+      !formData.amount
     ) {
       toast({
         title: "表单不完整",
@@ -198,12 +423,53 @@ export default function ConfigureStrategyPage() {
     }))
 
     try {
+      // 如果使用KyberSwap数据，先确保我们有完整的代币信息
+      if (useKyberData) {
+        // 查找源链和目标链
+        const sourceKyberChain = kyberChains.find(
+          chain => chain.displayName.toUpperCase().replace(/\s+/g, '_') === formData.sourceChain
+        );
+        
+        const targetKyberChain = kyberChains.find(
+          chain => chain.displayName.toUpperCase().replace(/\s+/g, '_') === formData.targetChain
+        );
+        
+        // 如果链未找到或代币数据未加载，提示用户
+        if (!sourceKyberChain || !cachedTokens[sourceKyberChain.chainId]) {
+          toast({
+            title: "源链代币数据未加载",
+            description: "请先加载源链的代币数据",
+            variant: "destructive",
+          });
+          setCalculationResult((prev) => ({
+            ...prev,
+            isLoading: false,
+            error: "源链代币数据未加载，请先点击'加载代币'按钮",
+          }));
+          return;
+        }
+        
+        if (!targetKyberChain || !cachedTokens[targetKyberChain.chainId]) {
+          toast({
+            title: "目标链代币数据未加载",
+            description: "请先加载目标链的代币数据",
+            variant: "destructive",
+          });
+          setCalculationResult((prev) => ({
+            ...prev,
+            isLoading: false,
+            error: "目标链代币数据未加载，请先点击'加载代币'按钮",
+          }));
+          return;
+        }
+      }
+      
       const result = await executeArbitrageQuery(
         formData.sourceChain,
         formData.targetChain,
         formData.sourceToken,
         formData.targetToken,
-        formData.initialAmount,
+        formData.amount,
         formData.slippage,
         formData.preferredApiProvider || undefined,
         formData.fallbackApiProviders.length > 0 ? formData.fallbackApiProviders : undefined,
@@ -271,7 +537,7 @@ export default function ConfigureStrategyPage() {
       !formData.targetChain ||
       !formData.targetToken ||
       !formData.targetSourceToken ||
-      !formData.initialAmount
+      !formData.amount
     ) {
       toast({
         title: "表单不完整",
@@ -285,25 +551,21 @@ export default function ConfigureStrategyPage() {
     const newStrategy: Strategy = {
       id: crypto.randomUUID(),
       name: formData.name,
+      description: `${formData.sourceChain}上的${formData.sourceToken}到${formData.targetChain}上的${formData.targetToken}套利策略`,
       sourceChain: formData.sourceChain,
-      sourceToken: formData.sourceToken,
       targetChain: formData.targetChain,
+      sourceToken: formData.sourceToken,
       targetToken: formData.targetToken,
-      initialAmount: formData.initialAmount,
-      gasFee: formData.gasFee,
-      networkFee: formData.networkFee,
-      slippage: formData.slippage,
-      maxGasPrice: formData.maxGasPrice,
-      gasLimit: formData.gasLimit,
-      bridgeFee: formData.bridgeFee,
-      dexFee: formData.dexFee,
-      minProfitPercentage: formData.minProfitPercentage,
-      autoTrade: formData.autoTrade,
+      amount: formData.amount,
+      minProfitPercentage: parseFloat(formData.minProfitPercentage),
+      enabled: false,
       preferredApiProvider: formData.preferredApiProvider || undefined,
       fallbackApiProviders: formData.fallbackApiProviders.length > 0 ? formData.fallbackApiProviders : undefined,
-      isActive: false,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      gasFee: formData.gasFee,
+      networkFee: formData.networkFee,
+      bridgeFee: formData.bridgeFee,
+      dexFee: formData.dexFee,
+      interval: 60000, // 默认每分钟检查一次
     }
 
     // 保存策略
@@ -341,6 +603,49 @@ export default function ConfigureStrategyPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">配置套利策略</h1>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="useKyberData"
+              checked={useKyberData}
+              onCheckedChange={(checked) => setUseKyberData(checked as boolean)}
+            />
+            <label
+              htmlFor="useKyberData"
+              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+            >
+              使用KyberSwap数据
+            </label>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadKyberSwapData}
+            disabled={loadingKyberData || !useKyberData}
+          >
+            {loadingKyberData ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                加载中...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                刷新KyberSwap数据
+              </>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refreshKyberSwapCache}
+            disabled={loadingKyberData}
+            className="text-yellow-600 border-yellow-300 hover:bg-yellow-50"
+          >
+            <Settings2 className="mr-2 h-4 w-4" />
+            强制刷新缓存
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="basic" className="w-full">
@@ -357,6 +662,64 @@ export default function ConfigureStrategyPage() {
               <CardDescription>设置套利策略的基本参数</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {useKyberData && (
+                <div className="bg-blue-50 p-4 rounded-lg mb-4">
+                  <div className="flex items-start space-x-2">
+                    <Globe className="h-5 w-5 text-blue-600 mt-0.5" />
+                    <div className="w-full">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-medium text-blue-900">KyberSwap数据状态</h4>
+                        <Badge variant={Object.keys(cachedTokens).length > 0 ? "default" : "outline"} className="text-xs">
+                          {Object.keys(cachedTokens).length > 0 ? "已加载" : "未加载"}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-blue-700 mt-1">
+                        已加载 {kyberChains.length} 个网络和 {Object.values(cachedTokens).reduce((acc, tokens) => acc + tokens.length, 0)} 个代币
+                      </p>
+                      {kyberChains.length > 0 && (
+                        <div className="mt-2">
+                          <div className="text-xs font-medium text-blue-800 mb-1">已加载的网络:</div>
+                          <div className="flex flex-wrap gap-1">
+                            {kyberChains.slice(0, 5).map(chain => (
+                              <Badge key={chain.chainId} variant="outline" className="text-xs flex items-center gap-1">
+                                {chain.logoUrl && (
+                                  <img 
+                                    src={chain.logoUrl} 
+                                    alt={chain.displayName}
+                                    className="w-3 h-3 rounded-full"
+                                  />
+                                )}
+                                <span>{chain.displayName}</span>
+                                {cachedTokens[chain.chainId]?.length > 0 && (
+                                  <span className="text-green-600 text-[10px]">
+                                    ({cachedTokens[chain.chainId].length})
+                                  </span>
+                                )}
+                              </Badge>
+                            ))}
+                            {kyberChains.length > 5 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{kyberChains.length - 5}个网络
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {Object.keys(cachedTokens).length > 0 && (
+                        <div className="mt-2 text-xs text-blue-700">
+                          <div className="flex items-center justify-between">
+                            <span>已加载代币的网络: {Object.keys(cachedTokens).length}个</span>
+                            <span className="text-[10px] text-blue-500">
+                              点击"加载代币"按钮获取更多代币数据
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="name">策略名称</Label>
                 <Input
@@ -379,33 +742,79 @@ export default function ConfigureStrategyPage() {
                         <SelectValue placeholder="选择源链" />
                       </SelectTrigger>
                       <SelectContent>
-                        {chainNames.map((chain) => (
-                          <SelectItem key={chain} value={chain}>
-                            {chain}
-                          </SelectItem>
-                        ))}
+                        {useKyberData && kyberChains.length > 0 ? (
+                          kyberChains.map((chain) => (
+                            <SelectItem 
+                              key={chain.chainId} 
+                              value={chain.displayName.toUpperCase().replace(/\s+/g, '_')}
+                            >
+                              <div className="flex items-center gap-2">
+                                {chain.logoUrl && (
+                                  <img 
+                                    src={chain.logoUrl} 
+                                    alt={chain.displayName}
+                                    className="w-4 h-4 rounded-full"
+                                  />
+                                )}
+                                {chain.displayName}
+                              </div>
+                            </SelectItem>
+                          ))
+                        ) : (
+                          chainNames.map((chain) => (
+                            <SelectItem key={chain} value={chain}>
+                              {chain}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
                     <Label>源代币</Label>
-                    <Select
-                      onValueChange={(value) => handleSelectChange("sourceToken", value)}
-                      value={formData.sourceToken}
-                      disabled={!formData.sourceChain}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="选择源代币" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sourceTokens.map((token) => (
-                          <SelectItem key={token} value={token}>
-                            {token}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <Select
+                          onValueChange={(value) => handleSelectChange("sourceToken", value)}
+                          value={formData.sourceToken}
+                          disabled={!formData.sourceChain}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择源代币" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sourceTokens.map((token, index) => (
+                              <SelectItem key={`${token}-${index}`} value={token}>
+                                {token}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {useKyberData && formData.sourceChain && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const kyberChain = kyberChains.find(
+                              chain => chain.displayName.toUpperCase().replace(/\s+/g, '_') === formData.sourceChain
+                            );
+                            if (kyberChain) {
+                              loadChainTokens(kyberChain.chainId);
+                            }
+                          }}
+                          disabled={loadingKyberData}
+                          className="whitespace-nowrap"
+                        >
+                          {loadingKyberData ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            "加载代币"
+                          )}
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -419,8 +828,8 @@ export default function ConfigureStrategyPage() {
                         <SelectValue placeholder="选择目标代币" />
                       </SelectTrigger>
                       <SelectContent>
-                        {sourceTargetTokens.map((token) => (
-                          <SelectItem key={token} value={token}>
+                        {sourceTargetTokens.map((token, index) => (
+                          <SelectItem key={`${token}-${index}`} value={token}>
                             {token}
                           </SelectItem>
                         ))}
@@ -439,33 +848,79 @@ export default function ConfigureStrategyPage() {
                         <SelectValue placeholder="选择目标链" />
                       </SelectTrigger>
                       <SelectContent>
-                        {chainNames.map((chain) => (
-                          <SelectItem key={chain} value={chain}>
-                            {chain}
-                          </SelectItem>
-                        ))}
+                        {useKyberData && kyberChains.length > 0 ? (
+                          kyberChains.map((chain) => (
+                            <SelectItem 
+                              key={chain.chainId} 
+                              value={chain.displayName.toUpperCase().replace(/\s+/g, '_')}
+                            >
+                              <div className="flex items-center gap-2">
+                                {chain.logoUrl && (
+                                  <img 
+                                    src={chain.logoUrl} 
+                                    alt={chain.displayName}
+                                    className="w-4 h-4 rounded-full"
+                                  />
+                                )}
+                                {chain.displayName}
+                              </div>
+                            </SelectItem>
+                          ))
+                        ) : (
+                          chainNames.map((chain) => (
+                            <SelectItem key={chain} value={chain}>
+                              {chain}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
                     <Label>目标代币</Label>
-                    <Select
-                      onValueChange={(value) => handleSelectChange("targetToken", value)}
-                      value={formData.targetToken}
-                      disabled={!formData.targetChain}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="选择目标代币" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {targetTokens.map((token) => (
-                          <SelectItem key={token} value={token}>
-                            {token}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <Select
+                          onValueChange={(value) => handleSelectChange("targetToken", value)}
+                          value={formData.targetToken}
+                          disabled={!formData.targetChain}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择目标代币" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {targetTokens.map((token, index) => (
+                              <SelectItem key={`${token}-${index}`} value={token}>
+                                {token}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {useKyberData && formData.targetChain && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const kyberChain = kyberChains.find(
+                              chain => chain.displayName.toUpperCase().replace(/\s+/g, '_') === formData.targetChain
+                            );
+                            if (kyberChain) {
+                              loadChainTokens(kyberChain.chainId);
+                            }
+                          }}
+                          disabled={loadingKyberData}
+                          className="whitespace-nowrap"
+                        >
+                          {loadingKyberData ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            "加载代币"
+                          )}
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -479,8 +934,8 @@ export default function ConfigureStrategyPage() {
                         <SelectValue placeholder="选择源代币" />
                       </SelectTrigger>
                       <SelectContent>
-                        {targetSourceTokens.map((token) => (
-                          <SelectItem key={token} value={token}>
+                        {targetSourceTokens.map((token, index) => (
+                          <SelectItem key={`${token}-${index}`} value={token}>
                             {token}
                           </SelectItem>
                         ))}
@@ -491,15 +946,15 @@ export default function ConfigureStrategyPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="initialAmount">初始金额</Label>
+                <Label htmlFor="amount">初始金额</Label>
                 <Input
-                  id="initialAmount"
-                  name="initialAmount"
+                  id="amount"
+                  name="amount"
                   type="number"
                   step="0.01"
                   min="0"
                   placeholder="输入初始金额"
-                  value={formData.initialAmount}
+                  value={formData.amount}
                   onChange={handleInputChange}
                 />
               </div>
@@ -559,7 +1014,8 @@ export default function ConfigureStrategyPage() {
                       targetToken={formData.targetToken}
                       sourceTargetToken={formData.sourceTargetToken}
                       targetSourceToken={formData.targetSourceToken}
-                      initialAmount={formData.initialAmount}
+                      amount={formData.amount}
+                      initialAmount={formData.amount}
                       sourceOutputAmount={calculationResult.sourceOutputAmount}
                       finalOutputAmount={calculationResult.finalOutputAmount}
                       profitPercentage={calculationResult.profitPercentage}
@@ -610,7 +1066,7 @@ export default function ConfigureStrategyPage() {
                         <div className={`text-lg font-bold ${getProfitColor(calculationResult.profitPercentage)}`}>
                           {(
                             Number.parseFloat(calculationResult.finalOutputAmount) -
-                            Number.parseFloat(formData.initialAmount)
+                            Number.parseFloat(formData.amount)
                           ).toFixed(6)}{" "}
                           {formData.sourceToken} ({calculationResult.profitPercentage.toFixed(2)}%)
                         </div>
@@ -632,7 +1088,6 @@ export default function ConfigureStrategyPage() {
               <CardFooter className="flex justify-end">
                 <Button
                   onClick={saveStrategy}
-             
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   <Save className="mr-2 h-4 w-4" />

@@ -65,7 +65,7 @@ export default function MonitorPage() {
       const allStrategies = getStrategies()
       setStrategies(allStrategies)
 
-      const active = allStrategies.filter((s) => s.isActive)
+      const active = allStrategies.filter((s) => s.enabled)
       setActiveStrategies(active)
 
       if (active.length > 0 && !isMonitoring) {
@@ -152,7 +152,7 @@ export default function MonitorPage() {
             strategy.targetChain,
             strategy.sourceToken,
             strategy.targetToken,
-            strategy.initialAmount,
+            strategy.amount,
             strategy.slippage,
             strategy.preferredApiProvider,
             strategy.fallbackApiProviders,
@@ -208,33 +208,34 @@ export default function MonitorPage() {
             if (
               strategy.autoTrade &&
               strategy.minProfitPercentage &&
-              netProfitPercentage >= Number.parseFloat(strategy.minProfitPercentage)
+              netProfitPercentage >= strategy.minProfitPercentage
             ) {
-              executeArbitrageTrade(
+              try {
+                await executeArbitrageTrade(
                 strategy.id,
                 strategy.name,
                 strategy.sourceChain,
                 strategy.targetChain,
                 strategy.sourceToken,
                 strategy.targetToken,
-                strategy.initialAmount,
+                  strategy.amount,
                 result.sourcePrice,
                 result.targetPrice,
-                netProfitPercentage,
-              ).then((result) => {
-                if (result.status === "completed") {
+                  netProfitPercentage
+                )
+
                   toast({
-                    title: "自动交易执行成功",
-                    description: `策略 ${strategy.name} 自动执行套利交易，获利 ${result.profitAmount} ${strategy.sourceToken}`,
+                  title: "自动交易执行",
+                  description: `策略 ${strategy.name} 已自动执行套利交易`,
                   })
-                } else {
+              } catch (error) {
+                console.error("自动交易执行失败:", error)
                   toast({
-                    title: "自动交易执行失败",
-                    description: result.error || "未知错误",
+                  title: "自动交易失败",
+                  description: `策略 ${strategy.name} 的自动交易执行失败`,
                     variant: "destructive",
                   })
                 }
-              })
             }
           }
         } catch (error) {
@@ -253,13 +254,23 @@ export default function MonitorPage() {
 
   // 启动/停止所有策略
   const toggleAllStrategies = (active: boolean) => {
-    const updatedStrategies = strategies.map((s) => {
-      updateStrategyStatus(s.id, active)
-      return { ...s, isActive: active }
-    })
-
+    const updatedStrategies = [...strategies]
+    for (const strategy of updatedStrategies) {
+      strategy.enabled = active
+      updateStrategyStatus(strategy.id, active)
+    }
     setStrategies(updatedStrategies)
-    setActiveStrategies(active ? updatedStrategies : [])
+    setActiveStrategies(active ? [...updatedStrategies] : [])
+
+    if (active && !isMonitoring) {
+      setIsMonitoring(true)
+    } else if (!active && isMonitoring) {
+      setIsMonitoring(false)
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
 
     toast({
       title: active ? "已启动所有策略" : "已停止所有策略",
@@ -269,16 +280,29 @@ export default function MonitorPage() {
 
   // 切换单个策略状态
   const toggleStrategy = (id: string, currentStatus: boolean) => {
+    const updatedStrategies = [...strategies]
+    const strategyIndex = updatedStrategies.findIndex((s) => s.id === id)
+
+    if (strategyIndex !== -1) {
+      updatedStrategies[strategyIndex] = {
+        ...updatedStrategies[strategyIndex],
+        enabled: !currentStatus,
+      }
+      setStrategies(updatedStrategies)
+
+      const newActiveStrategies = updatedStrategies.filter((s) => s.enabled)
+      setActiveStrategies(newActiveStrategies)
+
     updateStrategyStatus(id, !currentStatus)
 
-    setStrategies(strategies.map((s) => (s.id === id ? { ...s, isActive: !currentStatus } : s)))
-
-    if (currentStatus) {
-      setActiveStrategies(activeStrategies.filter((s) => s.id !== id))
-    } else {
-      const strategy = strategies.find((s) => s.id === id)
-      if (strategy) {
-        setActiveStrategies([...activeStrategies, { ...strategy, isActive: true }])
+      if (newActiveStrategies.length > 0 && !isMonitoring) {
+        setIsMonitoring(true)
+      } else if (newActiveStrategies.length === 0 && isMonitoring) {
+        setIsMonitoring(false)
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current)
+          intervalRef.current = null
+        }
       }
     }
 
@@ -320,6 +344,7 @@ export default function MonitorPage() {
 
   // 打开交易路径详情对话框
   const openRouteDetails = (opportunity: ArbitrageOpportunity) => {
+    console.log(`opportunity : ${JSON.stringify(opportunity)} `);
     setRouteDetailsDialog({
       open: true,
       sourceChain: opportunity.sourceChain,
@@ -363,6 +388,22 @@ export default function MonitorPage() {
   // 格式化时间
   const formatTime = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString()
+  }
+
+  // 格式化金额
+  const formatAmount = (amount: string) => {
+    try {
+      const num = parseFloat(amount);
+      // 对于小数部分，如果数值较小则显示更多小数位
+      if (num < 0.001) return num.toFixed(8);
+      if (num < 0.01) return num.toFixed(8);
+      if (num < 1) return num.toFixed(8);
+      if (num < 1000) return num.toFixed(8);
+      // 大数值添加千位分隔符
+      return num.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+    } catch (e) {
+      return amount;
+    }
   }
 
   // 获取利润颜色
@@ -471,6 +512,10 @@ export default function MonitorPage() {
                   </Select>
                 </CardHeader>
                 <CardContent>
+                  <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm text-gray-600">
+                    <p>交易流程: 在源链上将源代币兑换为目标代币(输出金额) → 跨链转移到目标链 → 在目标链上将目标代币兑换回源代币(最终金额)</p>
+                    <p>利润百分比 = (最终金额 - 初始金额) / 初始金额 × 100%</p>
+                  </div>
                   {filteredOpportunities.length === 0 ? (
                     <div className="text-center py-6 text-muted-foreground">正在等待价格数据...</div>
                   ) : (
@@ -479,23 +524,32 @@ export default function MonitorPage() {
                         <TableRow>
                           <TableHead>策略</TableHead>
                           <TableHead>源链/目标链</TableHead>
-                          <TableHead>源价格</TableHead>
-                          <TableHead>目标价格</TableHead>
+                          <TableHead>输出金额</TableHead>
+                          <TableHead>最终金额</TableHead>
                           <TableHead>利润 (%)</TableHead>
                           <TableHead>更新时间</TableHead>
                           <TableHead className="text-right">操作</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredOpportunities.map((opportunity, index) => (
+                        {filteredOpportunities.map((opportunity, index) => {
+                          // 获取对应策略以获取代币符号
+                          const strategy = strategies.find(s => s.id === opportunity.strategyId);
+                          const sourceToken = strategy?.sourceToken || '';
+                          const targetToken = strategy?.targetToken || '';
+                          
+                          return (
                           <TableRow key={`${opportunity.strategyId}-${index}`}>
                             <TableCell className="font-medium">{opportunity.strategyName}</TableCell>
                             <TableCell>
                               {opportunity.sourceChain} → {opportunity.targetChain}
+                              <div className="text-xs text-gray-500 mt-1">
+                                {sourceToken} → {targetToken} → {sourceToken}
+                              </div>
                             </TableCell>
                             
-                            <TableCell>{opportunity.sourceOutputAmount}</TableCell>
-                            <TableCell>{opportunity.finalOutputAmount}</TableCell>
+                            <TableCell>{formatAmount(opportunity.sourceOutputAmount.toString())} {targetToken}</TableCell>
+                            <TableCell>{formatAmount(opportunity.finalOutputAmount.toString())} {sourceToken}</TableCell>
                             <TableCell className={getProfitColor(opportunity.profitPercentage)}>
                               {opportunity.profitPercentage.toFixed(2)}%
                               {opportunity.profitPercentage > 1.0 && (
@@ -539,7 +593,7 @@ export default function MonitorPage() {
                               </div>
                             </TableCell>
                           </TableRow>
-                        ))}
+                        )})}
                       </TableBody>
                     </Table>
                   )}
@@ -576,13 +630,13 @@ export default function MonitorPage() {
                           <TableCell>
                             {strategy.targetChain}/{strategy.targetToken}
                           </TableCell>
-                          <TableCell>{strategy.initialAmount}</TableCell>
+                          <TableCell>{strategy.amount}</TableCell>
                           <TableCell>
                             <Badge
-                              variant={strategy.isActive ? "default" : "outline"}
-                              className={strategy.isActive ? "bg-green-100 text-green-800 hover:bg-green-200" : ""}
+                              variant={strategy.enabled ? "default" : "outline"}
+                              className={strategy.enabled ? "bg-green-100 text-green-800" : ""}
                             >
-                              {strategy.isActive ? "监控中" : "已停止"}
+                              {strategy.enabled ? "启用" : "禁用"}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -596,12 +650,12 @@ export default function MonitorPage() {
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
                               <Button
-                                variant={strategy.isActive ? "destructive" : "default"}
-                                className={!strategy.isActive ? "bg-blue-600 hover:bg-blue-700" : ""}
+                                variant={strategy.enabled ? "destructive" : "default"}
+                                className={!strategy.enabled ? "bg-blue-600 hover:bg-blue-700" : ""}
                                 size="sm"
-                                onClick={() => toggleStrategy(strategy.id, strategy.isActive)}
+                                onClick={() => toggleStrategy(strategy.id, strategy.enabled)}
                               >
-                                {strategy.isActive ? (
+                                {strategy.enabled ? (
                                   <>
                                     <Square className="mr-2 h-4 w-4" />
                                     停止
@@ -679,7 +733,7 @@ export default function MonitorPage() {
             // 重新加载策略
             const allStrategies = getStrategies()
             setStrategies(allStrategies)
-            setActiveStrategies(allStrategies.filter((s) => s.isActive))
+            setActiveStrategies(allStrategies.filter((s) => s.enabled))
           }}
         />
       )}

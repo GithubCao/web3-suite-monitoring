@@ -2,62 +2,118 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, Settings, BarChart3, PlusCircle, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  HomeIcon,
+  Cog6ToothIcon,
+  ChartBarIcon,
+  ClockIcon,
+  BanknotesIcon,
+  RocketLaunchIcon,
+  CurrencyDollarIcon,
+} from "@heroicons/react/24/outline"
 
-export default function Sidebar() {
+interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {}
+
+export default function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname()
 
-  const routes = [
-    {
-      href: "/",
-      icon: Home,
-      label: "首页",
-    },
-    {
-      href: "/strategies",
-      icon: BarChart3,
-      label: "策略管理",
-    },
-    {
-      href: "/strategies/configure",
-      icon: PlusCircle,
-      label: "创建策略",
-    },
-    {
-      href: "/monitor",
-      icon: Activity,
-      label: "监控中心",
-    },
-    {
-      href: "/settings",
-      icon: Settings,
-      label: "配置设置",
-    },
-  ]
-
   return (
-    <div className="flex flex-col h-screen w-64 bg-white border-r">
-      <div className="p-6">
-        <h1 className="text-xl font-bold text-blue-600">Web3 套利监控</h1>
-      </div>
-      <nav className="flex-1 px-4 space-y-1">
-        {routes.map((route) => (
-          <Link
-            key={route.href}
-            href={route.href}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all hover:text-blue-600",
-              pathname === route.href ? "bg-blue-50 text-blue-600 font-medium" : "text-gray-500",
-            )}
-          >
-            <route.icon className="h-4 w-4" />
-            {route.label}
-          </Link>
-        ))}
-      </nav>
-      <div className="p-4 border-t">
-        <div className="text-xs text-gray-500">© 2025 Web3 套利监控</div>
+    <div className={cn("pb-12 w-64 bg-gray-50 border-r min-h-screen", className)}>
+      <div className="space-y-4 py-4">
+        <div className="px-4 py-2">
+          <h2 className="mb-2 px-2 text-xl font-semibold tracking-tight">
+            套利监控系统
+          </h2>
+          <div className="space-y-1">
+            <Button
+              asChild
+              variant={pathname === "/" ? "default" : "ghost"}
+              className="w-full justify-start"
+            >
+              <Link href="/">
+                <HomeIcon className="mr-2 h-4 w-4" />
+                仪表盘
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant={pathname === "/strategies" ? "default" : "ghost"}
+              className="w-full justify-start"
+            >
+              <Link href="/strategies">
+                <RocketLaunchIcon className="mr-2 h-4 w-4" />
+                策略管理
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant={pathname === "/monitor" ? "default" : "ghost"}
+              className="w-full justify-start"
+            >
+              <Link href="/monitor">
+                <ChartBarIcon className="mr-2 h-4 w-4" />
+                实时监控
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant={pathname === "/history" ? "default" : "ghost"}
+              className="w-full justify-start"
+            >
+              <Link href="/history">
+                <ClockIcon className="mr-2 h-4 w-4" />
+                历史记录
+              </Link>
+            </Button>
+          </div>
+        </div>
+        <div className="px-4 py-2">
+          <h2 className="mb-2 px-2 text-lg font-semibold tracking-tight">
+            资产管理
+          </h2>
+          <div className="space-y-1">
+            <Button
+              asChild
+              variant={pathname === "/tokens" ? "default" : "ghost"}
+              className="w-full justify-start"
+            >
+              <Link href="/tokens">
+                <CurrencyDollarIcon className="mr-2 h-4 w-4" />
+                代币管理
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant={pathname === "/wallets" ? "default" : "ghost"}
+              className="w-full justify-start"
+            >
+              <Link href="/wallets">
+                <BanknotesIcon className="mr-2 h-4 w-4" />
+                钱包管理
+              </Link>
+            </Button>
+          </div>
+        </div>
+        <div className="px-4 py-2">
+          <h2 className="mb-2 px-2 text-lg font-semibold tracking-tight">
+            系统设置
+          </h2>
+          <div className="space-y-1">
+            <Button
+              asChild
+              variant={pathname === "/settings" ? "default" : "ghost"}
+              className="w-full justify-start"
+            >
+              <Link href="/settings">
+                <Cog6ToothIcon className="mr-2 h-4 w-4" />
+                系统配置
+              </Link>
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   )

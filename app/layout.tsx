@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/toaster"
 import Sidebar from "@/components/sidebar"
 import { TopNav } from "@/components/top-nav"
+import { TokenCacheInitializer } from "@/components/token-cache-initializer"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -24,6 +25,7 @@ export default function RootLayout({
     <html lang="zh" suppressHydrationWarning>
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+          <TokenCacheInitializer />
           <div className="flex min-h-screen">
             <Sidebar />
             <div className="flex-1 flex flex-col">

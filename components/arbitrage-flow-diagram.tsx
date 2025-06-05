@@ -11,7 +11,8 @@ interface ArbitrageFlowDiagramProps {
   targetToken: string
   sourceTargetToken?: string
   targetSourceToken?: string
-  initialAmount: string
+  amount: string
+  initialAmount?: string // 保留initialAmount作为向后兼容
   sourceOutputAmount: string
   finalOutputAmount: string
   profitPercentage: number
@@ -25,6 +26,7 @@ export function ArbitrageFlowDiagram({
   sourceTargetToken,
   targetSourceToken,
   initialAmount,
+  amount,
   sourceOutputAmount,
   finalOutputAmount,
   profitPercentage,
@@ -32,6 +34,9 @@ export function ArbitrageFlowDiagram({
   // 如果未提供sourceTargetToken或targetSourceToken，则使用对应的token
   const effectiveSourceTargetToken = sourceTargetToken || targetToken
   const effectiveTargetSourceToken = targetSourceToken || sourceToken
+  
+  // 使用amount或者fallback到initialAmount以保持向后兼容
+  const effectiveAmount = amount || initialAmount || "0"
 
   // 获取利润颜色
   const getProfitColor = (profit: number) => {
@@ -86,7 +91,7 @@ export function ArbitrageFlowDiagram({
               </div>
               <div className="bg-white border border-blue-100 rounded-lg p-3 w-full text-center">
                 <div className="font-medium">
-                  {initialAmount} {sourceToken}
+                  {effectiveAmount} {sourceToken}
                 </div>
               </div>
             </div>
@@ -119,7 +124,7 @@ export function ArbitrageFlowDiagram({
             <div className="text-sm font-medium">交易流程:</div>
             <div className="flex items-center">
               <span>
-                {initialAmount} {sourceToken}
+                {effectiveAmount} {sourceToken}
               </span>
               <ArrowRight className="mx-1 h-4 w-4 text-blue-500" />
               <span>
@@ -138,7 +143,7 @@ export function ArbitrageFlowDiagram({
             <div className="text-sm">
               净利润:
               <span className={`font-bold ml-1 ${getProfitColor(profitPercentage)}`}>
-                {(Number.parseFloat(finalOutputAmount) - Number.parseFloat(initialAmount)).toFixed(6)} {sourceToken} (
+                {(Number.parseFloat(finalOutputAmount) - Number.parseFloat(effectiveAmount)).toFixed(6)} {sourceToken} (
                 {profitPercentage.toFixed(2)}%)
               </span>
             </div>

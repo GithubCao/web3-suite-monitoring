@@ -22,7 +22,7 @@ export function RouteDetailsDialog({
 }: RouteDetailsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[700px]">
+      <DialogContent className="sm:max-w-[1200px]">
         <DialogHeader>
           <DialogTitle>交易路径详情</DialogTitle>
           <DialogDescription>
@@ -54,8 +54,8 @@ export function RouteDetailsDialog({
                         {step.tokenIn} <ArrowRight className="inline h-3 w-3 mx-1" /> {step.tokenOut}
                       </TableCell>
                       <TableCell>{(step.poolFee * 100).toFixed(2)}%</TableCell>
-                      <TableCell>{Number.parseFloat(step.amountIn).toFixed(6)}</TableCell>
-                      <TableCell>{Number.parseFloat(step.amountOut).toFixed(6)}</TableCell>
+                      <TableCell>{Number.parseFloat(step.amountIn)}</TableCell>
+                      <TableCell>{Number.parseFloat(step.amountOut)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -86,8 +86,8 @@ export function RouteDetailsDialog({
                         {step.tokenIn} <ArrowRight className="inline h-3 w-3 mx-1" /> {step.tokenOut}
                       </TableCell>
                       <TableCell>{(step.poolFee * 100).toFixed(2)}%</TableCell>
-                      <TableCell>{Number.parseFloat(step.amountIn).toFixed(6)}</TableCell>
-                      <TableCell>{Number.parseFloat(step.amountOut).toFixed(6)}</TableCell>
+                      <TableCell>{Number.parseFloat(step.amountIn)}</TableCell>
+                      <TableCell>{Number.parseFloat(step.amountOut)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

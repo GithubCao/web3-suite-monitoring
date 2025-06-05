@@ -1,16 +1,20 @@
 // 链配置类型
-export interface ChainConfig {
-  [key: string]: number;
+export type ChainConfig = Record<string, number>;
+
+// 代币详情类型
+export interface TokenDetail {
+  chainId: number;
+  address: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+  logoURI?: string;
 }
 
-// 代币配置类型
-export interface TokenConfig {
-  [chain: string]: {
-    [token: string]: string;
-  };
-}
+// 代币配置类型（支持字符串地址或TokenDetail对象）
+export type TokenConfig = Record<string, Record<string, string | TokenDetail>>;
 
-// API配置类型
+// 价格查询API配置类型
 export interface ApiConfig {
   id: string;
   name: string;
@@ -18,42 +22,17 @@ export interface ApiConfig {
   enabled: boolean;
   priority: number;
   config: {
-    apiKey?: string;
     baseUrl?: string;
-    rateLimit?: number;
+    apiKey?: string;
     timeout?: number;
+    rateLimit?: number;
     [key: string]: any;
   };
   supportedChains: number[];
   description?: string;
 }
 
-// 策略类型
-export interface Strategy {
-  id: string;
-  name: string;
-  sourceChain: string;
-  sourceToken: string;
-  targetChain: string;
-  targetToken: string;
-  initialAmount: string;
-  gasFee: string;
-  networkFee: string;
-  slippage: string;
-  isActive: boolean;
-  autoTrade: boolean; // 是否自动执行交易
-  minProfitPercentage: string; // 最小利润百分比触发自动交易
-  maxGasPrice: string; // 最大Gas价格 (Gwei)
-  gasLimit: string; // Gas限制
-  bridgeFee: string; // 跨链桥费用
-  dexFee: string; // DEX交易费用
-  preferredApiProvider?: string; // 首选API提供商
-  fallbackApiProviders?: string[]; // 备用API提供商列表
-  createdAt: number;
-  updatedAt: number;
-}
-
-// 价格查询结果类型
+// 价格报价类型
 export interface PriceQuote {
   status: string;
   tokens: {
@@ -69,11 +48,11 @@ export interface PriceQuote {
   amountIn: string;
   assumedAmountOut: string;
   gasSpent: number;
-  route?: RouteStep[]; // 新增：交易路径
-  provider?: string; // API提供商
+  provider: string;
+  route: RouteStep[];
 }
 
-// 交易路径步骤
+// 交易路径步骤类型
 export interface RouteStep {
   dexName: string;
   poolAddress: string;
@@ -82,36 +61,6 @@ export interface RouteStep {
   tokenOut: string;
   amountIn: string;
   amountOut: string;
-}
-
-// 套利机会类型
-export interface ArbitrageOpportunity {
-  strategyId: string;
-  strategyName: string;
-  sourceChain: string;
-  targetChain: string;
-  sourcePrice: number;
-  targetPrice: number;
-  sourceOutputAmount: string;
-  finalOutputAmount: string;
-  profitPercentage: number;
-  timestamp: number;
-  sourceRoute?: RouteStep[]; // 新增：源链交易路径
-  targetRoute?: RouteStep[]; // 新增：目标链交易路径
-  sourceApiProvider?: string; // 源链使用的API提供商
-  targetApiProvider?: string; // 目标链使用的API提供商
-}
-
-// 价格历史记录类型
-export interface PriceHistoryRecord {
-  id: string;
-  strategyId: string;
-  sourcePrice: number;
-  targetPrice: number;
-  sourceOutputAmount: string;
-  finalOutputAmount: string;
-  profitPercentage: number;
-  timestamp: number;
 }
 
 // 交易执行记录类型
@@ -129,7 +78,85 @@ export interface TradeExecution {
   profitAmount: string;
   profitPercentage: number;
   status: "pending" | "completed" | "failed";
-  txHash?: string;
   timestamp: number;
+  txHash?: string;
   error?: string;
+}
+
+// 策略配置类型
+export interface Strategy {
+  id: string;
+  name: string;
+  description: string;
+  sourceChain: string;
+  targetChain: string;
+  sourceToken: string;
+  targetToken: string;
+  sourceTargetToken?: string;
+  targetSourceToken?: string;
+  amount: string;
+  minProfitPercentage: number;
+  enabled: boolean;
+  preferredApiProvider?: string;
+  fallbackApiProviders?: string[];
+  gasFee?: string;
+  networkFee?: string;
+  bridgeFee?: string;
+  dexFee?: string;
+  slippage?: string;
+  maxGasPrice?: string;
+  gasLimit?: string;
+  autoTrade?: boolean;
+  interval: number;
+  lastRun?: number;
+  lastProfit?: number;
+}
+
+// 套利机会类型
+export interface ArbitrageOpportunity {
+  strategyId: string;
+  strategyName: string;
+  sourceChain: string;
+  targetChain: string;
+  sourcePrice: number;
+  targetPrice: number;
+  sourceOutputAmount: string;
+  finalOutputAmount: string;
+  profitPercentage: number;
+  timestamp: number;
+  sourceRoute?: RouteStep[];
+  targetRoute?: RouteStep[];
+}
+
+// 价格历史记录类型
+export interface PriceHistoryRecord {
+  id: string;
+  strategyId: string;
+  sourcePrice: number;
+  targetPrice: number;
+  sourceOutputAmount: string;
+  finalOutputAmount: string;
+  profitPercentage: number;
+  timestamp: number;
+}
+
+// 通知配置类型
+export interface NotificationConfig {
+  enabled: boolean;
+  minProfitPercentage: number;
+  channels: {
+    email?: {
+      enabled: boolean;
+      address: string;
+    };
+    telegram?: {
+      enabled: boolean;
+      botToken: string;
+      chatId: string;
+    };
+    discord?: {
+      enabled: boolean;
+      webhookUrl: string;
+    };
+  };
 }
