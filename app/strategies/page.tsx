@@ -178,7 +178,7 @@ export default function StrategiesPage() {
                             onClick={() => handleDelete(strategy.id)}
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
-                            删除 
+                            删除
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
