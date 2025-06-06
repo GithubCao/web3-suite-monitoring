@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { RefreshCw, Loader2, Zap, Key, Globe } from "lucide-react"
+import { RefreshCw, Loader2 } from "lucide-react"
 import { fetchMultiDexPrices } from "@/lib/api"
 import type { PriceQuote } from "@/lib/types"
 
@@ -20,14 +20,6 @@ interface DexPriceData {
   dex: string
   price: number
   quote: PriceQuote | null
-}
-
-// 获取API提供商图标
-const getApiProviderIcon = (provider: string) => {
-  if (provider.includes("1inch")) return <Zap className="h-4 w-4" />
-  if (provider.includes("paraswap") || provider.includes("0x")) return <Key className="h-4 w-4" />
-  if (provider.includes("jupiter")) return <Globe className="h-4 w-4" />
-  return <Globe className="h-4 w-4" />
 }
 
 export function MultiDexPriceComparison({

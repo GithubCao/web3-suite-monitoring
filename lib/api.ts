@@ -14,7 +14,6 @@ export enum ApiProvider {
   PARASWAP = "paraswap",
   ZEROX = "0x",
   KYBERSWAP = "kyberswap",
-  JUPITER = "jupiter",
 }
 
 // 1inch API响应类型
@@ -141,37 +140,6 @@ interface KyberSwapPriceImpactResponse {
     amountOutUSD: string
     priceImpact: string
   }
-}
-
-// Jupiter API响应类型
-interface JupiterQuoteResponse {
-  inputMint: string
-  inAmount: string
-  outputMint: string
-  outAmount: string
-  otherAmountThreshold: string
-  swapMode: string
-  slippageBps: number
-  platformFee: null | {
-    amount: string
-    feeBps: number
-  }
-  priceImpactPct: string
-  routePlan: Array<{
-    swapInfo: {
-      ammKey: string
-      label: string
-      inputMint: string
-      outputMint: string
-      inAmount: string
-      outAmount: string
-      feeAmount: string
-      feeMint: string
-    }
-    percent: number
-  }>
-  contextSlot: number
-  timeTaken: number
 }
 
 // 获取1inch价格报价
@@ -636,128 +604,6 @@ const fetchKyberSwapPriceImpact = async (
   }
 }
 
-// 获取Jupiter价格报价
-const fetchJupiterQuote = async (
-  apiConfig: ApiConfig,
-  chainId: number,
-  tokenInAddress: string,
-  tokenOutAddress: string,
-  amount: string,
-  slippage = "0.005",
-): Promise<PriceQuote | null> => {
-  try {
-    // Jupiter 只支持 Solana (chainId: 101)
-    if (chainId !== 101) {
-      console.error(`Jupiter does not support chain ID ${chainId}`)
-      return null
-    }
-
-    // 构建 Jupiter API 请求URL
-    const baseUrl = apiConfig.config.baseUrl || "https://ultra-api.jup.ag"
-    const slippageBps = Math.floor(Number.parseFloat(slippage) * 10000) // 转换为基点
-
-    const url = `${baseUrl}/order?inputMint=${tokenInAddress}&outputMint=${tokenOutAddress}&amount=${amount}&swapMode=ExactIn&slippageBps=${slippageBps}`
-
-    console.log(`Fetching Jupiter quote from: ${url}`)
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), apiConfig.config.timeout || 10000)
-
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (compatible; ArbitrageBot/1.0)",
-        ...(apiConfig.config.apiKey && {
-          Authorization: `Bearer ${apiConfig.config.apiKey}`,
-        }),
-      },
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeoutId)
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`Jupiter API error: ${response.status} - ${errorText}`)
-      throw new Error(`Jupiter API error: ${response.status}`)
-    }
-
-    const data: JupiterQuoteResponse = await response.json()
-
-    // 计算交换价格
-    const amountIn = Number.parseFloat(data.inAmount)
-    const amountOut = Number.parseFloat(data.outAmount)
-
-    if (amountIn === 0) {
-      throw new Error("Invalid input amount")
-    }
-
-    const swapPrice = amountOut / amountIn
-
-    // 计算价格影响
-    const priceImpact = Number.parseFloat(data.priceImpactPct) / 100
-
-    // 构建交易路径步骤
-    const routeSteps: RouteStep[] = data.routePlan.map((step) => ({
-      dexName: step.swapInfo.label,
-      poolAddress: step.swapInfo.ammKey,
-      poolFee: step.swapInfo.feeAmount
-        ? Number.parseFloat(step.swapInfo.feeAmount) / Number.parseFloat(step.swapInfo.inAmount)
-        : 0.003,
-      tokenIn: step.swapInfo.inputMint,
-      tokenOut: step.swapInfo.outputMint,
-      amountIn: step.swapInfo.inAmount,
-      amountOut: step.swapInfo.outAmount,
-    }))
-
-    // 转换为统一格式
-    const quote: PriceQuote = {
-      status: "success",
-      tokens: [
-        {
-          address: tokenInAddress,
-          symbol: "IN",
-          name: "Input Token",
-          decimals: 6, // Solana 代币通常是 6 位小数
-        },
-        {
-          address: tokenOutAddress,
-          symbol: "OUT",
-          name: "Output Token",
-          decimals: 9, // SOL 是 9 位小数
-        },
-      ],
-      tokenFrom: 0,
-      tokenTo: 1,
-      swapPrice,
-      priceImpact,
-      amountIn: data.inAmount,
-      assumedAmountOut: data.outAmount,
-      gasSpent: 5000, // Solana 交易费用很低，大约 5000 lamports
-      provider: apiConfig.id,
-      route: routeSteps,
-    }
-
-    console.log(`Jupiter quote successful: ${swapPrice} (${data.inAmount} -> ${data.outAmount})`)
-    return quote
-  } catch (error) {
-    console.error("Error fetching Jupiter quote:", error)
-
-    // 如果是网络错误或超时，返回null让系统尝试其他提供商
-    if (error instanceof Error) {
-      if (error.name === "AbortError") {
-        console.error("Jupiter request timed out")
-      } else if (error.message.includes("Failed to fetch")) {
-        console.error("Jupiter network error - API may be unavailable")
-      }
-    }
-
-    return null
-  }
-}
-
 // 获取KyberSwap支持的链名称
 const getChainNameForKyberSwap = (chainId: number): string | null => {
   const chainMap: Record<number, string> = {
@@ -804,8 +650,6 @@ const fetchQuoteByProvider = async (
         return await fetchParaSwapQuote(apiConfig, chainId, tokenInAddress, tokenOutAddress, amount)
       case "kyberswap":
         return await fetchKyberSwapQuote(apiConfig, chainId, tokenInAddress, tokenOutAddress, amount)
-      case "jupiter":
-        return await fetchJupiterQuote(apiConfig, chainId, tokenInAddress, tokenOutAddress, amount, slippage)
       default:
         console.warn(`Unknown API provider: ${apiConfig.provider}`)
         return null
@@ -1223,7 +1067,7 @@ export const executeArbitrageQuery = async (
 
     const sourceOutputAmount = sourceQuote.assumedAmountOut
     console.log(`源链输出金额: ${sourceOutputAmount} ${targetToken}`)
-    console.log(`源链输出结果: ${JSON.stringify(sourceQuote)}`)
+ console.log(`源链输出结果: ${JSON.stringify(sourceQuote)}`)
     // 确保sourceOutputAmount不使用科学计数法表示
     let adjustedSourceOutputAmount = sourceOutputAmount
     if (sourceOutputAmount.includes("e")) {

@@ -10,10 +10,13 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
-import { getStrategyById, updateStrategy } from "@/lib/storage"
-import type { Strategy } from "@/lib/types"
-import { ArrowLeft } from "lucide-react"
-import Link from "next/link"
+
+interface Strategy {
+  id: string
+  name: string
+  description: string
+  content: string
+}
 
 const EditStrategyPage = () => {
   const router = useRouter()
@@ -23,26 +26,25 @@ const EditStrategyPage = () => {
   const [strategy, setStrategy] = useState<Strategy | null>(null)
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
-  const [amount, setAmount] = useState("")
+  const [content, setContent] = useState("")
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchStrategy = () => {
+    const fetchStrategy = async () => {
       setLoading(true)
       try {
-        const data = getStrategyById(strategyId)
-        if (data) {
-          setStrategy(data)
-          setName(data.name)
-          setDescription(data.description || "")
-          setAmount(data.amount)
-        } else {
-          toast.error("策略不存在")
-          router.push("/strategies")
+        const response = await fetch(`/api/strategies/${strategyId}`)
+        if (!response.ok) {
+          throw new Error(`Failed to fetch strategy: ${response.status}`)
         }
+        const data = await response.json()
+        setStrategy(data)
+        setName(data.name)
+        setDescription(data.description)
+        setContent(data.content)
       } catch (error: any) {
-        console.error("获取策略时出错:", error)
-        toast.error(`获取策略时出错: ${error.message}`)
+        console.error("Error fetching strategy:", error)
+        toast.error(`Error fetching strategy: ${error.message}`)
       } finally {
         setLoading(false)
       }
@@ -51,66 +53,61 @@ const EditStrategyPage = () => {
     if (strategyId) {
       fetchStrategy()
     }
-  }, [strategyId, router])
+  }, [strategyId])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     try {
-      if (!strategy) {
-        throw new Error("策略不存在")
+      const response = await fetch(`/api/strategies/${strategyId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          description,
+          content,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to update strategy: ${response.status}`)
       }
 
-      const updatedStrategy: Strategy = {
-        ...strategy,
-        name,
-        description,
-        amount,
-      }
-
-      updateStrategy(updatedStrategy)
-      toast.success("策略更新成功!")
+      toast.success("Strategy updated successfully!")
       router.push("/strategies")
     } catch (error: any) {
-      console.error("更新策略时出错:", error)
-      toast.error(`更新策略时出错: ${error.message}`)
+      console.error("Error updating strategy:", error)
+      toast.error(`Error updating strategy: ${error.message}`)
     } finally {
       setLoading(false)
     }
   }
 
   if (loading) {
-    return <div className="container mx-auto py-10">加载中...</div>
+    return <div>Loading...</div>
   }
 
   if (!strategy) {
-    return <div className="container mx-auto py-10">未找到策略。</div>
+    return <div>Strategy not found.</div>
   }
 
   return (
-    <div className="container mx-auto py-10 space-y-6">
-      <div className="flex items-center">
-        <Button variant="ghost" size="sm" asChild className="mr-2">
-          <Link href="/strategies">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            返回策略列表
-          </Link>
-        </Button>
-      </div>
-
+    <div className="container mx-auto py-10">
       <Card>
         <CardHeader>
-          <CardTitle>编辑策略</CardTitle>
-          <CardDescription>修改策略的基本信息。</CardDescription>
+          <CardTitle>Edit Strategy</CardTitle>
+          <CardDescription>Edit the strategy details below.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="name">策略名称</Label>
+              <Label htmlFor="name">Name</Label>
               <Input id="name" type="text" value={name} onChange={(e) => setName(e.target.value)} required />
             </div>
             <div>
-              <Label htmlFor="description">描述</Label>
+              <Label htmlFor="description">Description</Label>
               <Textarea
                 id="description"
                 value={description}
@@ -119,24 +116,15 @@ const EditStrategyPage = () => {
               />
             </div>
             <div>
-              <Label htmlFor="amount">初始金额</Label>
-              <Input id="amount" type="text" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+              <Label htmlFor="content">Content</Label>
+              <Textarea id="content" value={content} onChange={(e) => setContent(e.target.value)} rows={8} required />
             </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" type="button" onClick={() => router.push("/strategies")}>
-                取消
-              </Button>
-              <Button type="submit" disabled={loading}>
-                {loading ? "更新中..." : "更新策略"}
-              </Button>
-            </div>
+            <Button type="submit" disabled={loading}>
+              {loading ? "Updating..." : "Update Strategy"}
+            </Button>
           </form>
         </CardContent>
       </Card>
-
-      <div className="text-sm text-muted-foreground">
-        <p>注意：如需修改更多高级设置，请删除此策略并创建新策略。</p>
-      </div>
     </div>
   )
 }

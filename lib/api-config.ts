@@ -89,8 +89,7 @@ export const defaultApiConfigs: ApiConfig[] = [
     endpoints: {
       quote: "/swap/v1/quote",
     },
-  },
-  {
+  },  {
     id: "kyberswap",
     name: "KyberSwap",
     provider: "kyberswap",
@@ -120,26 +119,9 @@ export const defaultApiConfigs: ApiConfig[] = [
     ],
     description: "KyberSwap API - 高效DEX聚合器，支持多链、多DEX交易路由",
   },
-  {
-    id: "jupiter",
-    name: "Jupiter",
-    provider: "jupiter",
-    enabled: true,
-    priority: 1,
-    config: {
-      baseUrl: "https://ultra-api.jup.ag",
-      timeout: 10000,
-      rateLimit: 100,
-    },
-    supportedChains: [101], // Solana mainnet
-    description: "Jupiter API - Solana 生态系统最大的 DEX 聚合器",
-    endpoints: {
-      quote: "/order",
-    },
-  },
-]
+];
 // API配置存储键
-const API_CONFIG_KEY = "web3-arbitrage-api-config"
+const API_CONFIG_KEY = "web3-arbitrage-api-config"; 
 
 // 保存API配置
 export const saveApiConfigs = (configs: ApiConfig[]): void => {
