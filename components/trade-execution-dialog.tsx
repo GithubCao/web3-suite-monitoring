@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   Dialog,
   DialogContent,
@@ -35,7 +35,8 @@ export function TradeExecutionDialog({
   targetPrice,
   profitPercentage,
 }: TradeExecutionDialogProps) {
-  const [amount, setAmount] = useState(strategy.amount)
+  // 添加空值检查，如果策略为空则不渲染
+  const [amount, setAmount] = useState<string>(strategy?.amount || "")
   const [isExecuting, setIsExecuting] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [arbitrageDetails, setArbitrageDetails] = useState<{
@@ -44,10 +45,16 @@ export function TradeExecutionDialog({
     updatedProfitPercentage: number
   } | null>(null)
   const { toast } = useToast()
+  const isFirstRender = useRef(true)
+
+  if (!strategy) {
+    return null
+  }
 
   // 修改交易执行对话框以支持新的策略配置
   useEffect(() => {
-    if (open) {
+    if (open && strategy) {
+      // 添加 strategy 检查
       setAmount(strategy.amount)
       setIsExecuting(false)
       setIsLoading(true)
@@ -65,7 +72,7 @@ export function TradeExecutionDialog({
         strategy.gasFee,
         strategy.networkFee,
         strategy.bridgeFee,
-        strategy.dexFee
+        strategy.dexFee,
       )
         .then((result) => {
           setArbitrageDetails({
@@ -90,7 +97,13 @@ export function TradeExecutionDialog({
 
   // 当金额变化时更新套利详情
   useEffect(() => {
-    if (open && amount !== strategy.amount) {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
+    }
+
+    if (open && strategy && amount !== strategy.amount) {
+      // 添加 strategy 检查
       setIsLoading(true)
 
       executeArbitrageQuery(
@@ -105,7 +118,7 @@ export function TradeExecutionDialog({
         strategy.gasFee,
         strategy.networkFee,
         strategy.bridgeFee,
-        strategy.dexFee
+        strategy.dexFee,
       )
         .then((result) => {
           setArbitrageDetails({
@@ -170,9 +183,7 @@ export function TradeExecutionDialog({
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>执行套利交易</DialogTitle>
-          <DialogDescription>
-            确认交易详情并调整金额，然后点击执行
-          </DialogDescription>
+          <DialogDescription>确认交易详情并调整金额，然后点击执行</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 py-4">
@@ -191,55 +202,55 @@ export function TradeExecutionDialog({
 
           <div className="mt-4 space-y-4">
             <h3 className="text-sm font-medium">套利详情</h3>
-          {isLoading ? (
+            {isLoading ? (
               <div className="flex justify-center items-center h-[150px]">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : arbitrageDetails ? (
-            <ArbitrageFlowDiagram
-              sourceChain={strategy.sourceChain}
-              targetChain={strategy.targetChain}
-              sourceToken={strategy.sourceToken}
-              targetToken={strategy.targetToken}
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : arbitrageDetails ? (
+              <ArbitrageFlowDiagram
+                sourceChain={strategy.sourceChain}
+                targetChain={strategy.targetChain}
+                sourceToken={strategy.sourceToken}
+                targetToken={strategy.targetToken}
                 amount={amount}
-              sourceOutputAmount={arbitrageDetails.sourceOutputAmount}
-              finalOutputAmount={arbitrageDetails.finalOutputAmount}
-              profitPercentage={arbitrageDetails.updatedProfitPercentage}
-            />
-          ) : (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-sm font-medium mb-1">源链</div>
-                <div className="text-sm">
-                  {strategy.sourceChain} / {strategy.sourceToken}
+                sourceOutputAmount={arbitrageDetails.sourceOutputAmount}
+                finalOutputAmount={arbitrageDetails.finalOutputAmount}
+                profitPercentage={arbitrageDetails.updatedProfitPercentage}
+              />
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-sm font-medium mb-1">源链</div>
+                  <div className="text-sm">
+                    {strategy.sourceChain} / {strategy.sourceToken}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm font-medium mb-1">目标链</div>
+                  <div className="text-sm">
+                    {strategy.targetChain} / {strategy.targetToken}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm font-medium mb-1">源价格</div>
+                  <div className="text-sm">{sourcePrice.toFixed(8)}</div>
+                </div>
+                <div>
+                  <div className="text-sm font-medium mb-1">目标价格</div>
+                  <div className="text-sm">{targetPrice.toFixed(8)}</div>
+                </div>
+                <div>
+                  <div className="text-sm font-medium mb-1">预期利润率</div>
+                  <div className="text-sm text-green-500 font-bold">{profitPercentage.toFixed(2)}%</div>
+                </div>
+                <div>
+                  <div className="text-sm font-medium mb-1">预期利润</div>
+                  <div className="text-sm text-green-500 font-bold">
+                    {((Number.parseFloat(amount) * profitPercentage) / 100).toFixed(4)} {strategy.sourceToken}
+                  </div>
                 </div>
               </div>
-              <div>
-                <div className="text-sm font-medium mb-1">目标链</div>
-                <div className="text-sm">
-                  {strategy.targetChain} / {strategy.targetToken}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm font-medium mb-1">源价格</div>
-                <div className="text-sm">{sourcePrice.toFixed(8)}</div>
-              </div>
-              <div>
-                <div className="text-sm font-medium mb-1">目标价格</div>
-                <div className="text-sm">{targetPrice.toFixed(8)}</div>
-              </div>
-              <div>
-                <div className="text-sm font-medium mb-1">预期利润率</div>
-                <div className="text-sm text-green-500 font-bold">{profitPercentage.toFixed(2)}%</div>
-              </div>
-              <div>
-                <div className="text-sm font-medium mb-1">预期利润</div>
-                <div className="text-sm text-green-500 font-bold">
-                  {((Number.parseFloat(amount) * profitPercentage) / 100).toFixed(4)} {strategy.sourceToken}
-                </div>
-              </div>
-            </div>
-          )}
+            )}
           </div>
         </div>
 

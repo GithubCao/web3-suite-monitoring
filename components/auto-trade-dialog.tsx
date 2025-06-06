@@ -25,20 +25,27 @@ interface AutoTradeDialogProps {
 }
 
 export function AutoTradeDialog({ open, onOpenChange, strategy, onUpdate }: AutoTradeDialogProps) {
-  const [autoTrade, setAutoTrade] = useState(strategy.autoTrade || false)
-  const [minProfitPercentage, setMinProfitPercentage] = useState(strategy.minProfitPercentage || "1.0")
   const { toast } = useToast()
+  const [autoTrade, setAutoTrade] = useState(strategy?.autoTrade || false)
+  const [minProfitPercentage, setMinProfitPercentage] = useState(strategy?.minProfitPercentage || "1.0")
 
-  // 重置表单
+  // 如果策略为空，不渲染组件
+  if (!strategy) {
+    return null
+  }
+
+  // 重置表单 - 添加策略存在性检查
   useEffect(() => {
-    if (open) {
+    if (open && strategy) {
       setAutoTrade(strategy.autoTrade || false)
       setMinProfitPercentage(strategy.minProfitPercentage || "1.0")
     }
   }, [open, strategy])
 
-  // 保存设置
+  // 保存设置 - 添加策略存在性检查
   const handleSave = () => {
+    if (!strategy) return
+
     updateStrategyAutoTrade(strategy.id, autoTrade, minProfitPercentage)
 
     toast({

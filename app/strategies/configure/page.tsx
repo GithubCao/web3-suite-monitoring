@@ -23,7 +23,7 @@ import {
 } from "@/lib/config"
 import { executeArbitrageQuery } from "@/lib/api"
 import { getApiProviderOptions } from "@/lib/api-config"
-import { Loader2, RefreshCw, Save, Zap, Globe, Key, Settings2, Check, ChevronsUpDown } from "lucide-react"
+import { Loader2, RefreshCw, Save, Zap, Globe, Key, Settings2, Check, ChevronsUpDown, AlertCircle } from "lucide-react"
 import { ArbitrageFlowDiagram } from "@/components/arbitrage-flow-diagram"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
@@ -33,6 +33,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
+import { WalletSelector } from "@/components/wallet-selector"
 
 export default function ConfigureStrategyPage() {
   const router = useRouter()
@@ -70,6 +71,7 @@ export default function ConfigureStrategyPage() {
     dexFee: "0.003",
     minProfitPercentage: "1.0",
     autoTrade: false,
+    walletAddress: "", // 新增: 钱包地址
     preferredApiProvider: "",
     fallbackApiProviders: [] as string[],
   })
@@ -501,7 +503,7 @@ export default function ConfigureStrategyPage() {
             ...prev,
             sourceChain: value,
             sourceToken: tokenSymbols.length > 0 ? tokenSymbols[0] : "",
-            sourceTargetToken: tokenSymbols.length > 1 ? tokenSymbols[1] : tokenSymbols[0],
+            sourceTargetToken: tokenSymbols.length > 1 ? tokenSymbols[1].symbol : tokenSymbols[0],
           }))
 
           const tokenDetails = getTokenDetails(value)
@@ -599,6 +601,14 @@ export default function ConfigureStrategyPage() {
     setFormData((prev) => ({
       ...prev,
       fallbackApiProviders: providers,
+    }))
+  }
+
+  // 处理钱包选择
+  const handleWalletSelect = (walletAddress: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      walletAddress,
     }))
   }
 
@@ -753,6 +763,16 @@ export default function ConfigureStrategyPage() {
       return
     }
 
+    // 如果启用自动交易但未选择钱包，给出警告
+    if (formData.autoTrade && !formData.walletAddress) {
+      toast({
+        title: "警告",
+        description: "启用自动交易需要选择钱包地址",
+        variant: "destructive",
+      })
+      return
+    }
+
     // 创建新策略
     const newStrategy: Strategy = {
       id: crypto.randomUUID(),
@@ -771,6 +791,8 @@ export default function ConfigureStrategyPage() {
       networkFee: formData.networkFee,
       bridgeFee: formData.bridgeFee,
       dexFee: formData.dexFee,
+      autoTrade: formData.autoTrade,
+      walletAddress: formData.walletAddress || undefined, // 新增: 钱包地址
       interval: 60000, // 默认每分钟检查一次
     }
 
@@ -1012,8 +1034,9 @@ export default function ConfigureStrategyPage() {
       </div>
 
       <Tabs defaultValue="basic" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="basic">基本配置</TabsTrigger>
+          <TabsTrigger value="wallet">钱包设置</TabsTrigger>
           <TabsTrigger value="api">API设置</TabsTrigger>
           <TabsTrigger value="advanced">高级设置</TabsTrigger>
         </TabsList>
@@ -1409,6 +1432,10 @@ export default function ConfigureStrategyPage() {
           )}
         </TabsContent>
 
+        <TabsContent value="wallet" className="space-y-4 mt-4">
+          <WalletSelector selectedWallet={formData.walletAddress} onWalletSelect={handleWalletSelect} />
+        </TabsContent>
+
         <TabsContent value="api" className="space-y-4 mt-4">
           <Card>
             <CardHeader>
@@ -1603,6 +1630,20 @@ export default function ConfigureStrategyPage() {
                   启用自动交易
                 </label>
               </div>
+
+              {formData.autoTrade && !formData.walletAddress && (
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-medium text-yellow-800">需要选择钱包</h4>
+                      <p className="text-sm text-yellow-700 mt-1">
+                        启用自动交易需要在"钱包设置"选项卡中选择一个钱包地址
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
