@@ -1067,7 +1067,7 @@ export const executeArbitrageQuery = async (
 
     const sourceOutputAmount = sourceQuote.assumedAmountOut
     console.log(`源链输出金额: ${sourceOutputAmount} ${targetToken}`)
-
+ console.log(`源链输出结果: ${JSON.stringify(sourceQuote)}`)
     // 确保sourceOutputAmount不使用科学计数法表示
     let adjustedSourceOutputAmount = sourceOutputAmount
     if (sourceOutputAmount.includes("e")) {
@@ -1093,7 +1093,7 @@ export const executeArbitrageQuery = async (
     // 使用返回的代币信息中的 decimals 字段来转换金额
     const decimalSourceOutputAmount = convertWeiToDecimal(
       sourceOutputAmount,
-      sourceQuote.tokens[0].decimals, // 使用输出代币的 decimals
+      sourceQuote.tokens[1].decimals, // 使用输出代币的 decimals
     )
 
     const decimalFinalOutputAmount = convertWeiToDecimal(
